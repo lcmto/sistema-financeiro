@@ -1,0 +1,441 @@
+/* CSS Limpo e Otimizado */
+/*
+ * Este arquivo foi revisado para:
+ * 1. Remover declarações CSS redundantes que causavam duplicação de código.
+ * 2. Corrigir pequenos erros de cópia/colagem que resultavam em seletores ou propriedades repetidas.
+ *
+ * As mudanças visam melhorar a legibilidade e a manutenibilidade do código,
+ * sem alterar o comportamento visual ou a funcionalidade da aplicação.
+ */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    color: #333;
+}
+
+/* Estrutura principal da aplicação */
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.1);
+    position: relative;
+}
+
+.header {
+    background: linear-gradient(135deg, #2c3e50 0%, #2c7ac4 100%);
+    color: white;
+    padding: 20px;
+    text-align: center;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+}
+
+.header h1 {
+    font-size: 2em;
+    margin-bottom: 10px;
+}
+
+/* Navegação por abas */
+.nav-tabs {
+    background: #f8f9fa;
+    padding: 0;
+    display: flex;
+    border-bottom: 2px solid #dee2e6;
+    /* Adicionado para permitir que as abas se ajustem em linhas se houver muitas */
+    flex-wrap: wrap;
+}
+
+.nav-tab {
+    flex: 1; /* Permite que as abas cresçam e ocupem o espaço disponível */
+    min-width: 120px; /* Garante um tamanho mínimo para cada aba */
+    padding: 15px;
+    background: #e9ecef;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    border-right: 1px solid #dee2e6; /* Separador visual entre as abas */
+}
+
+.nav-tab:last-child {
+    border-right: none;
+}
+
+.nav-tab.active {
+    background: #007bff;
+    color: white;
+}
+
+.nav-tab:hover:not(.active) {
+    background: #d1ecf1;
+}
+
+/* Conteúdo das abas */
+.tab-content {
+    display: none;
+    padding: 30px;
+    min-height: 600px; /* Garante altura mínima para todas as seções */
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* Containers de formulário - Reutilizados em Cadastro, Recorrentes, Faturas, Configurações */
+.form-container {
+    background: white;
+    padding: 30px;
+    border-radius: 15px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    margin-bottom: 30px;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    margin-bottom: 20px; /* Espaçamento entre os grupos de formulário */
+}
+
+.form-group label {
+    font-weight: 600;
+    margin-bottom: 5px;
+    color: #495057;
+}
+
+.form-group input[type="text"],
+.form-group input[type="number"],
+.form-group input[type="date"],
+.form-group select,
+.form-group textarea {
+    padding: 12px;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: border-color 0.3s ease;
+}
+
+.form-group input[type="text"]:focus,
+.form-group input[type="number"]:focus,
+.form-group input[type="date"]:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: 2px solid #007bff;
+    outline-offset: 2px;
+    border-color: #007bff;
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+/* Specific style for radio buttons to align text and input */
+.form-group .radio-group {
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.form-group .radio-group input[type="radio"] {
+    margin-right: 8px;
+    /* Adjust size for better visibility */
+    transform: scale(1.2);
+}
+
+.form-group .radio-group label {
+    margin-bottom: 0; /* Remove extra margin */
+}
+
+.form-group .error-message {
+    color: #dc3545;
+    font-size: 0.85em;
+    margin-top: 5px;
+    display: none;
+}
+
+.form-group input.is-invalid,
+.form-group select.is-invalid,
+.form-group textarea.is-invalid {
+    border-color: #dc3545;
+}
+
+/* Estilos de Botões - Reutilizados em toda a aplicação */
+.btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin: 5px;
+}
+
+.btn-primary { background: #007bff; color: white; }
+.btn-primary:hover { background: #0056b3; transform: translateY(-2px); }
+.btn-success { background: #28a745; color: white; }
+.btn-success:hover { background: #1e7e34; }
+.btn-danger { background: #dc3545; color: white; }
+.btn-danger:hover { background: #c82333; }
+.btn-secondary { background: #6c757d; color: white; }
+.btn-secondary:hover { background: #545b62; }
+.btn-info { background: #17a2b8; color: white; }
+.btn-info:hover { background: #138496; }
+.btn-sm { padding: 6px 12px; font-size: 12px; }
+
+/* Área de Importação */
+.import-area {
+    border: 3px dashed #007bff;
+    border-radius: 15px;
+    padding: 40px;
+    text-align: center;
+    background: #f8f9fa;
+    margin-bottom: 20px;
+    transition: all 0.3s ease;
+}
+
+.import-area:hover { background: #e3f2fd; border-color: #0056b3; }
+.import-area.dragover { background: #bbdefb; border-color: #1976d2; }
+
+/* Grid de Estatísticas - Reutilizado em Transações e Faturas */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.stat-card {
+    background: white;
+    padding: 25px;
+    border-radius: 15px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    text-align: center;
+    transition: transform 0.3s ease;
+}
+
+.stat-card:hover { transform: translateY(-5px); }
+.stat-value { font-size: 2em; font-weight: bold; margin-bottom: 10px; }
+.stat-label { color: #6c757d; font-weight: 500; }
+
+/* Cores para valores positivos, negativos e neutros */
+.positive { color: #28a745; }
+.negative { color: #B00020; }
+.neutral { color: #17a2b8; }
+
+/* Container da Tabela - Reutilizado em Transações, Recorrentes, Faturas, Categorias */
+.table-container {
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    overflow: hidden; /* Garante que o overflow da tabela seja tratado */
+    margin-bottom: 30px;
+}
+
+.table-header {
+    background: #f8f9fa;
+    padding: 20px;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.table-title { font-size: 1.3em; font-weight: 600; color: #495057; }
+.search-box { padding: 8px 12px; border: 1px solid #ced4da; border-radius: 6px; width: 250px; }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+th, td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #e9ecef;
+}
+th {
+    background: #f8f9fa;
+    font-weight: 600;
+    color: #495057;
+    position: sticky;
+    top: 0;
+    z-index: 1; /* Garante que o cabeçalho fique acima do conteúdo ao rolar */
+}
+tr:hover {
+    background: #f8f9fa; /* Efeito hover para linhas da tabela */
+}
+.amount { font-weight: 600; }
+
+/* Componentes de Relatório */
+.chart-container { background: white; border-radius: 15px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1); margin-bottom: 30px; overflow: hidden; }
+.chart-title { background: #f8f9fa; padding: 20px; font-size: 1.3em; font-weight: 600; color: #495057; border-bottom: 1px solid #e9ecef; }
+.chart { height: 400px; padding: 20px; box-sizing: border-box; width: 100%; }
+
+.filters {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+/* Alertas Globais */
+.alert-container { position: fixed; top: 0; left: 0; width: 100%; z-index: 10000; padding: 10px; box-sizing: border-box; pointer-events: none; }
+.alert { padding: 15px; border-radius: 8px; margin-bottom: 10px; font-weight: 500; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 600px; margin-left: auto; margin-right: auto; text-align: center; animation: fadeOut 0.5s forwards 4.5s; pointer-events: all; }
+.alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+.alert-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+@keyframes fadeOut { from { opacity: 1; } to { opacity: 0; display: none; } }
+
+/* Componentes de Upload */
+.file-input { display: none; }
+.file-label { display: inline-block; padding: 12px 24px; background: #007bff; color: white; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s ease; }
+.file-label:hover { background: #0056b3; }
+.progress-bar { width: 100%; height: 20px; background: #e9ecef; border-radius: 10px; overflow: hidden; margin: 10px 0; }
+.progress-fill { height: 100%; background: #007bff; transition: width 0.3s ease; }
+
+/* Classes Utilitárias */
+.hidden-field { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+/* Estilo para Modais */
+.modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); justify-content: center; align-items: center; }
+.modal-content { background-color: #fefefe; margin: auto; padding: 30px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); width: 90%; max-width: 500px; position: relative; }
+.close-button { color: #aaa; float: right; font-size: 28px; font-weight: bold; position: absolute; top: 10px; right: 20px; }
+.close-button:hover, .close-button:focus { color: black; text-decoration: none; cursor: pointer; }
+
+/* Modal de Detalhes da Transação */
+#transactionDetailsModal .modal-content { max-width: 800px; }
+#transactionDetailsTable { width: 100%; border-collapse: collapse; margin-top: 20px; }
+#transactionDetailsTable th, #transactionDetailsTable td { padding: 8px; border: 1px solid #ddd; text-align: left; }
+#transactionDetailsTable th { background-color: #f2f2f2; }
+
+/* Media Queries para Responsividade */
+@media (max-width: 768px) {
+    .nav-tabs { flex-direction: column; }
+    .form-grid { grid-template-columns: 1fr; }
+    .filters { flex-direction: column; align-items: stretch; }
+    .search-box { width: 100%; }
+    .table-header { flex-direction: column; align-items: flex-start; }
+    .table-header .table-actions { margin-top: 10px; width: 100%; display: flex; flex-wrap: wrap; gap: 10px; }
+    .chart { min-height: 250px; padding: 10px; }
+}
+
+/* * ===============================================
+ * NOVAS REGRAS DE ESTILO ADICIONADAS E OTIMIZAÇÕES
+ * ===============================================
+*/
+
+/* 1. REGRAS PARA O GRÁFICO FOCADO (ABA RELATÓRIOS) */
+.chart-container-focused {
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    margin: 30px 0;
+    padding: 20px;
+    height: 600px; /* Altura generosa para melhor visualização */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* A área do gráfico principal preenche o novo container focado. */
+#main-chart-area {
+    width: 100%;
+    height: 100%;
+}
+
+/* Ajuste de altura para o container do gráfico em telas menores. */
+@media (max-width: 768px) {
+    .chart-container-focused {
+        height: 450px;
+        padding: 10px;
+    }
+}
+
+/* 2. REGRAS PARA O BOTÃO DE ORDENAÇÃO (ABA TRANSAÇÕES) */
+/* Estiliza o <button> dentro do <th> para parecer um texto normal e clicável. */
+.sort-button {
+    background: none;
+    border: none;
+    color: inherit; /* Herda a cor do <th> */
+    font-family: inherit; /* Herda a fonte do <th> */
+    font-size: inherit; /* Herda o tamanho da fonte do <th> */
+    font-weight: inherit; /* Herda o peso da fonte do <th> */
+    cursor: pointer;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+    text-align: left; /* Garante alinhamento com outras colunas */
+}
+
+.sort-button:hover {
+    text-decoration: underline;
+    color: #0056b3; /* Cor de destaque ao passar o mouse */
+}
+
+/* Estilo para o ícone de seta (🔽/🔼) */
+#sortIcon {
+    margin-left: 8px;
+    font-size: 0.9em;
+    display: inline-block;
+}
+
+/* Adições ou ajustes menores para garantir que as novas seções se encaixem perfeitamente */
+/* As seções de "Recorrentes", "Faturas" e "Gerenciamento de Categorias"
+   reutilizam as classes existentes (.form-container, .table-container, .stats-grid, etc.)
+   portanto, a maioria dos estilos já é aplicada automaticamente. */
+
+/* Ajuste para o rodapé */
+.footer {
+    width: 100%;
+    background: #f8f9fa; /* Cor de fundo para o rodapé */
+    padding: 20px;
+    margin-top: 30px; /* Espaçamento acima do rodapé */
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.05); /* Sombra sutil para destacar */
+}
+
+/* Estilo para a tabela de gerenciamento de categorias - específica para a coluna de subcategorias */
+#categoryManagementTable .subcategories-list {
+    list-style-type: none; /* Remove marcadores de lista */
+    padding: 0;
+    margin: 0;
+}
+
+#categoryManagementTable .subcategories-list li {
+    background-color: #e9ecef; /* Fundo sutil para cada subcategoria */
+    border-radius: 5px;
+    padding: 3px 8px;
+    margin-bottom: 5px; /* Espaçamento entre as subcategorias */
+    display: inline-block; /* Permite que fiquem lado a lado se houver espaço */
+    font-size: 0.85em;
+    color: #495057;
+}
+
+/* Estilo para botões de ação dentro das tabelas (Editar/Excluir Categoria/Recorrente) */
+.table-actions-btns {
+    display: flex;
+    gap: 5px; /* Espaçamento entre os botões */
+}

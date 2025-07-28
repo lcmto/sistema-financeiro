@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Controle Financeiro Doméstico</title>
+
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.plot.ly https://cdnjs.cloudflare.com https://unpkg.com 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self';">
+
+    <meta name="description" content="Gerencie suas finanças domésticas de forma inteligente e organizada com o Sistema de Controle Financeiro Doméstico. Cadastre transações, importe extratos, visualize relatórios e controle seu orçamento pessoal.">
+    <meta name="keywords" content="controle financeiro, finanças pessoais, orçamento doméstico, gerenciador de despesas, receitas, transações, relatórios financeiros, controle de gastos">
+    
+    <meta property="og:title" content="Sistema de Controle Financeiro Doméstico">
+    <meta property="og:description" content="Gerencie suas finanças de forma inteligente e organizada com este sistema completo.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="[SUA_URL_DA_APLICACAO_AQUI]">
+    <meta property="og:image" content="[URL_PARA_IMAGEM_PREVIEW_AQUI]">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Sistema de Controle Financeiro Doméstico">
+    <meta name="twitter:description" content="Gerencie suas finanças de forma inteligente e organizada com este sistema completo.">
+    <meta name="twitter:image" content="[URL_PARA_IMAGEM_PREVIEW_AQUI]">
+
+    <link rel="stylesheet" href="style.css">
+
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js" defer integrity="sha384-7TVmlZWH60iKX5Uk7lSvQhjtcgw2tkFjuwLcXoRSR4zXTyWFJRm9aPAguMh7CIra" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" defer integrity="sha384-fCAW/rDWORTbQXSiB7mOg0QtQ5c+r0f544y6XoKjuVva0nMBlCpNUjiFeG5iMdS3" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/dexie@3.2.3/dist/dexie.js" defer integrity="sha384-VwZKvw6+zCDWDpmg+M3pjOiChRqfzVH+bo0UUvUFp1+mU1JqbCq1+aOdCPC+v2YL" crossorigin="anonymous"></script>
+    <script src="script.js" defer></script>
+</head>
+<body>
+    <header class="header">
+        <h1>💰 Sistema de Controle Financeiro Doméstico</h1>
+        <p>Gerencie suas finanças de forma inteligente e organizada</p>
+    </header>
+
+    <nav class="nav-tabs" role="tablist">
+        <button class="nav-tab active" data-tab="cadastro" id="tab-cadastro" role="tab" aria-selected="true" aria-controls="panel-cadastro">📝 Cadastro</button>
+        <button class="nav-tab" data-tab="importacao" id="tab-importacao" role="tab" aria-selected="false" aria-controls="panel-importacao" tabindex="-1">📤 Importação</button>
+        <button class="nav-tab" data-tab="transacoes" id="tab-transacoes" role="tab" aria-selected="false" aria-controls="panel-transacoes" tabindex="-1">🔄 Transações</button>
+        <button class="nav-tab" data-tab="relatorios" id="tab-relatorios" role="tab" aria-selected="false" aria-controls="panel-relatorios" tabindex="-1">📊 Relatórios</button>
+        <button class="nav-tab" data-tab="configuracoes" id="tab-configuracoes" role="tab" aria-selected="false" aria-controls="panel-configuracoes" tabindex="-1">⚙️ Configurações</button>
+    </nav>
+
+    <main class="container">
+        <section id="cadastro" class="tab-content active" role="tabpanel" aria-labelledby="tab-cadastro">
+            <div class="form-container">
+                <h2>📝 Cadastrar Nova Transação</h2>
+                <form id="transactionForm" novalidate>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="data">Data da Transação *</label>
+                            <input type="date" id="data" name="data" required>
+                            <div class="error-message" id="data-error"></div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="tipo">Tipo de Transação *</label>
+                            <select id="tipo" name="tipo" required>
+                                <option value="">Selecione o tipo</option>
+                                <option value="receita">Receita</option>
+                                <option value="despesa">Despesa</option>
+                            </select>
+                            <div class="error-message" id="tipo-error"></div>
+                        </div>
+                    </div>
+
+                    <div class="form-group" id="categoriaGroup">
+                        <label for="categoria">Categoria *</label>
+                        <select id="categoria" name="categoria" required>
+                            <option value="">Selecione a categoria</option>
+                        </select>
+                        <div class="error-message" id="categoria-error"></div>
+                    </div>
+
+                    <div class="form-group" id="outraCategoriaGroup">
+                        <label for="outraCategoria">Ou Outra Categoria</label>
+                        <input type="text" id="outraCategoria" name="outraCategoria" placeholder="Ex: Despesas do Lar">
+                        <div class="error-message" id="outraCategoria-error"></div>
+                    </div>
+
+                    <div class="form-group" id="subcategoriaGroup">
+                        <label for="subcategoria">Subcategoria</label>
+                        <select id="subcategoria" name="subcategoria">
+                            <option value="">Selecione a subcategoria</option>
+                        </select>
+                        <div class="error-message" id="subcategoria-error"></div>
+                    </div>
+
+                    <div class="form-group" id="outraSubcategoriaGroup">
+                        <label for="outraSubcategoria">Ou Outra Subcategoria</label>
+                        <input type="text" id="outraSubcategoria" name="outraSubcategoria" placeholder="Ex: Empregada Doméstica">
+                        <div class="error-message" id="outraSubcategoria-error"></div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="valor">Valor (R$) *</label>
+                        <input type="number" id="valor" name="valor" step="0.01" min="0" required placeholder="0,00">
+                        <div class="error-message" id="valor-error"></div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="meio">Meio de Transação *</label>
+                        <select id="meio" name="meio" required>
+                            <option value="">Selecione o meio</option>
+                            <option value="pix">PIX</option>
+                            <option value="cartao_credito">Cartão de Crédito</option>
+                            <option value="debito">Débito</option>
+                            <option value="dinheiro">Dinheiro</option>
+                            <option value="boleto">Boleto</option>
+                            <option value="transferencia">Transferência</option>
+                            <option value="outros">Outros</option>
+                        </select>
+                        <div class="error-message" id="meio-error"></div>
+                    </div>
+
+                    <div id="installmentOptionsContainer" class="form-container" style="display: none;">
+                        <h3>Opções de Pagamento (Cartão de Crédito)</h3>
+                        <div class="form-group">
+                            <label>Tipo de Pagamento:</label>
+                            <div>
+                                <div class="radio-group">
+                                    <input type="radio" id="paymentTypeSingle" name="paymentType" value="single" checked>
+                                    <label for="paymentTypeSingle">À Vista</label>
+                                </div>
+                                <div class="radio-group">
+                                    <input type="radio" id="paymentTypeInstallment" name="paymentType" value="installment">
+                                    <label for="paymentTypeInstallment">Parcelado</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="numInstallmentsGroup" class="form-group" style="display: none;">
+                            <label for="numInstallmentsInput">Número de Parcelas *</label>
+                            <input type="number" id="numInstallmentsInput" name="numInstallmentsInput" min="1" value="1" required>
+                            <div class="error-message" id="numInstallmentsInput-error"></div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="descricao">Descrição</label>
+                        <textarea id="descricao" name="descricao" maxlength="255" placeholder="Descreva a transação (máximo 255 caracteres)"></textarea>
+                        <div class="error-message" id="descricao-error"></div>
+                    </div>
+
+                    <div class="form-group">
+                        <input type="checkbox" id="isRecurringCheckbox" name="isRecurringCheckbox" style="margin-right: 5px;">
+                        <label for="isRecurringCheckbox">Esta é uma Transação Recorrente?</label>
+                    </div>
+
+                    <div id="recurringFieldsContainer" class="form-container" style="display: none;">
+                        <h3>Opções de Recorrência</h3>
+                        <div class="form-group">
+                            <label for="recurringFrequencySelect">Frequência de Recorrência *</label>
+                            <select id="recurringFrequencySelect" name="recurringFrequencySelect" required>
+                                <option value="">Selecione a frequência</option>
+                                <option value="weekly">Semanal</option>
+                                <option value="monthly">Mensal</option>
+                                <option value="bimestral">Bimestral</option>
+                                <option value="quarterly">Trimestral</option>
+                                <option value="semestral">Semestral</option>
+                                <option value="yearly">Anual</option>
+                            </select>
+                            <div class="error-message" id="recurringFrequencySelect-error"></div>
+                        </div>
+                    </div>
+
+                    <div style="text-align: center; margin-top: 20px;">
+                        <button type="submit" class="btn btn-primary">💾 Salvar Transação</button>
+                        <button type="button" class="btn btn-secondary" id="clearFormBtn">🔄 Limpar</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <section id="importacao" class="tab-content" role="tabpanel" aria-labelledby="tab-importacao">
+            <div class="form-container">
+                <h2>📥 Importar Extratos Bancários</h2>
+                
+                <div class="import-area" id="importArea">
+                    <h3>📤 Arraste e solte seus arquivos aqui</h3>
+                    <p>ou</p>
+                    <label for="fileInput" class="file-label">
+                        📂 Selecionar Arquivos
+                    </label>
+                    <input type="file" id="fileInput" class="file-input" multiple accept=".csv,.xlsx,.xls">
+                    <p style="margin-top: 15px; color: #6c757d;">
+                        Formatos aceitos: CSV, XLSX, XLS
+                    </p>
+                </div>
+
+                <div id="importProgress" style="display: none;">
+                    <h4>Processando arquivos...</h4>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <p id="progressText">0%</p>
+                </div>
+
+                <div id="importResults"></div>
+
+                <div style="text-align: center; margin-top: 20px;">
+                    <button type="button" class="btn btn-danger" id="undoImportBtn">↩️ Desfazer Última Importação</button>
+                </div>
+            </div>
+        </section>
+
+        <section id="transacoes" class="tab-content" role="tabpanel" aria-labelledby="tab-transacoes">
+            <div class="filters">
+                <div class="form-group">
+                    <label for="filterDataInicio">Período:</label>
+                    <input type="date" id="filterDataInicio" placeholder="Data início">
+                </div>
+                <div class="form-group">
+                    <label for="filterDataFim">até:</label>
+                    <input type="date" id="filterDataFim" placeholder="Data fim">
+                </div>
+                <div class="form-group">
+                    <label for="filterTipo">Tipo:</label>
+                    <select id="filterTipo">
+                        <option value="">Todos</option>
+                        <option value="receita">Receita</option>
+                        <option value="despesa">Despesa</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="filterCategoria">Categoria:</label>
+                    <select id="filterCategoria">
+                        <option value="">Todas</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary" id="applyFiltersBtn">🔍 Filtrar</button>
+                <button type="button" class="btn btn-secondary" id="clearFiltersBtn">🔄 Limpar</button>
+            </div>
+
+            <div class="stats-grid" id="transactionStats">
+            </div>
+
+            <div class="table-container">
+                <div class="table-header">
+                    <div class="table-title">📋 Lista de Transações</div>
+                    <div class="table-actions">
+                        <input type="text" class="search-box" id="searchBox" placeholder="🔍 Buscar transações...">
+                        <button class="btn btn-secondary" id="selectAllBtn">☑️ Selecionar Tudo</button>
+                        <button class="btn btn-info" id="editSelectedMeioBtn" style="display: none;">✏️ Modificar Meio (<span id="selectedCountMeio">0</span>)</button>
+                        <button class="btn btn-danger" id="deleteSelectedBtn" style="display: none;">🗑️ Excluir Selecionados (<span id="selectedCount">0</span>)</button>
+                    </div>
+                </div>
+                <div style="overflow-x: auto; max-height: 600px;">
+                    <table id="transactionsTable">
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" id="masterCheckbox"></th>
+                                <th>
+                                    <button id="sortDateBtn" class="sort-button" title="Clique para ordenar por data">
+                                        Data <span id="sortIcon"></span>
+                                    </button>
+                                </th>
+                                <th>Tipo</th>
+                                <th>Categoria</th>
+                                <th>Subcategoria</th>
+                                <th>Descrição</th>
+                                <th>Valor</th>
+                                <th>Meio</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="transactionsBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <section id="relatorios" class="tab-content" role="tabpanel" aria-labelledby="tab-relatorios">
+            <div class="filters">
+                <div class="form-group">
+                    <label for="reportDataInicio">Período:</label>
+                    <input type="date" id="reportDataInicio">
+                </div>
+                <div class="form-group">
+                    <label for="reportDataFim">até:</label>
+                    <input type="date" id="reportDataFim">
+                </div>
+                <div class="form-group">
+                    <label for="reportChartSelect">Visualizar Gráfico:</label>
+                    <select id="reportChartSelect">
+                        <option value="receitasDespesasChart">Receitas vs Despesas</option>
+                        <option value="despesasCategoriaChart">Despesas por Categoria</option>
+                        <option value="evolucaoMensalChart">Evolução Mensal</option>
+                        <option value="transacoesMeioChart">Transações por Meio</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="chartTypeDespesas">Tipo (Gráfico Despesas):</label>
+                    <select id="chartTypeDespesas">
+                        <option value="pie">Pizza</option>
+                        <option value="bar">Barras</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary" id="generateReportsBtn">📊 Gerar Relatórios</button>
+                <button class="btn btn-success" id="exportExcelReportBtn">📥 Exportar para Excel</button>
+                <button class="btn btn-danger" id="exportPdfReportBtn">📄 Exportar para PDF</button>
+            </div>
+
+            <div class="stats-grid" id="reportStats">
+                </div>
+
+            <div class="chart-container-focused">
+                <div class="chart" id="main-chart-area"></div>
+            </div>
+        </section>
+
+        <section id="configuracoes" class="tab-content" role="tabpanel" aria-labelledby="tab-configuracoes">
+            <div class="form-container">
+                <h2>⚙️ Configurações do Sistema</h2>
+                
+                <h3>📊 Dados do Sistema</h3>
+                <div style="margin: 20px 0;">
+                    <button class="btn btn-success" id="exportAllDataBtn">📥 Exportar Todos os Dados</button>
+                    <button class="btn btn-secondary" id="importDataBtn">📤 Importar Dados</button>
+                    <button class="btn btn-danger" id="clearAllDataBtn">🗑️ Limpar Todos os Dados</button>
+                </div>
+
+                <h3>📋 Estatísticas do Sistema</h3>
+                <div id="systemStats" class="stats-grid">
+                </div>
+
+                <h3 style="margin-top: 40px;">🏷️ Gerenciamento de Categorias Personalizáveis</h3>
+                <div class="form-container">
+                    <h4>Adicionar/Editar Categoria</h4>
+                    <form id="categoryManagementForm">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="categoryType">Tipo de Transação *</label>
+                                <select id="categoryType" name="categoryType" required>
+                                    <option value="">Selecione o tipo</option>
+                                    <option value="receita">Receita</option>
+                                    <option value="despesa">Despesa</option>
+                                </select>
+                                <div class="error-message" id="categoryType-error"></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="categoryName">Nome da Categoria *</label>
+                                <input type="text" id="categoryName" name="categoryName" required placeholder="Ex: Moradia, Salário">
+                                <div class="error-message" id="categoryName-error"></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="subcategoryName">Nome da Subcategoria (Opcional)</label>
+                                <input type="text" id="subcategoryName" name="subcategoryName" placeholder="Ex: Aluguel, Bônus">
+                                <div class="error-message" id="subcategoryName-error"></div>
+                            </div>
+                        </div>
+                        <div style="text-align: center; margin-top: 20px;">
+                            <button type="submit" class="btn btn-primary" id="saveCategoryBtn">💾 Salvar Categoria/Subcategoria</button>
+                            <button type="button" class="btn btn-secondary" id="clearCategoryFormBtn">🔄 Limpar</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="table-container" style="margin-top: 30px;">
+                    <div class="table-header">
+                        <div class="table-title">🏷️ Categorias e Subcategorias Existentes</div>
+                    </div>
+                    <div style="overflow-x: auto; max-height: 600px;">
+                        <table id="categoryManagementTable">
+                            <thead>
+                                <tr>
+                                    <th>Tipo</th>
+                                    <th>Categoria</th>
+                                    <th>Subcategorias</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="categoryManagementBody">
+                                </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+    
+    <footer class="footer">
+        <p style="text-align: center; padding: 20px; color: #6c757d; font-size: 0.9em;">
+            &copy; 2025 Sistema de Controle Financeiro Doméstico. Todos os direitos reservados.
+        </p>
+    </footer>
+
+    <div id="globalAlertContainer" class="alert-container" role="status"></div>
+
+    <div id="editMeioModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" id="closeEditMeioModalBtn">&times;</span>
+            <h3>Modificar Meio de Pagamento</h3>
+            <p>Alterar o meio de pagamento para <strong id="selectedCountMeioModal">0</strong> transação(ões) selecionada(s).</p>
+            <div class="form-group">
+                <label for="modalMeio">Novo Meio:</label>
+                <select id="modalMeio">
+                    <option value="">Selecione o novo meio</option>
+                    <option value="pix">PIX</option>
+                    <option value="cartao_credito">Cartão de Crédito</option>
+                    <option value="debito">Débito</option>
+                    <option value="dinheiro">Dinheiro</option>
+                    <option value="boleto">Boleto</option>
+                    <option value="transferencia">Transferência</option>
+                </select>
+            </div>
+            <div style="text-align: right; margin-top: 15px;">
+                <button class="btn btn-secondary" id="cancelEditMeioBtn">Cancelar</button>
+                <button class="btn btn-primary" id="applyEditMeioBtn">Aplicar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="transactionDetailsModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" id="closeTransactionDetailsModalBtn">&times;</span>
+            <h3 id="transactionDetailsTitle">Detalhes da Transação</h3>
+            <div style="overflow-x: auto;">
+                <table id="transactionDetailsTable">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Tipo</th>
+                            <th>Categoria</th>
+                            <th>Subcategoria</th>
+                            <th>Descrição</th>
+                            <th>Valor</th>
+                            <th>Meio</th>
+                        </tr>
+                    </thead>
+                    <tbody id="transactionDetailsBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
