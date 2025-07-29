@@ -5,11 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistema de Controle Financeiro Doméstico</title>
 
+    <!-- Content Security Policy para segurança -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.plot.ly https://cdnjs.cloudflare.com https://unpkg.com 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self';">
 
+    <!-- Metadados para SEO e Compartilhamento Social -->
     <meta name="description" content="Gerencie suas finanças domésticas de forma inteligente e organizada com o Sistema de Controle Financeiro Doméstico. Cadastre transações, importe extratos, visualize relatórios e controle seu orçamento pessoal.">
     <meta name="keywords" content="controle financeiro, finanças pessoais, orçamento doméstico, gerenciador de despesas, receitas, transações, relatórios financeiros, controle de gastos">
-    
     <meta property="og:title" content="Sistema de Controle Financeiro Doméstico">
     <meta property="og:description" content="Gerencie suas finanças de forma inteligente e organizada com este sistema completo.">
     <meta property="og:type" content="website">
@@ -20,13 +21,18 @@
     <meta name="twitter:description" content="Gerencie suas finanças de forma inteligente e organizada com este sistema completo.">
     <meta name="twitter:image" content="[URL_PARA_IMAGEM_PREVIEW_AQUI]">
 
+    <!-- Link para o CSS principal da aplicação -->
     <link rel="stylesheet" href="style.css">
 
+    <!-- Carregamento de bibliotecas JavaScript via CDN com defer e integrity para segurança e performance -->
     <script src="https://cdn.plot.ly/plotly-2.32.0.min.js" defer integrity="sha384-7TVmlZWH60iKX5Uk7lSvQhjtcgw2tkFjuwLcXoRSR4zXTyWFJRm9aPAguMh7CIra" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
+    <!-- CORREÇÃO: Atualizado o hash de integridade para jsPDF 2.5.1 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer integrity="sha512-qZvrmS2ekKPF2mSznTQsxqPgnpkI4DNTlrdUmTzrDgektczlKNRRhy5X5AAOnx5S09ydFYWWNSfcEqDTTHgtNA==" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" defer integrity="sha384-fCAW/rDWORTbQXSiB7mOg0QtQ5c+r0f544y6XoKjuVva0nMBlCpNUjiFeG5iMdS3" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/dexie@3.2.3/dist/dexie.js" defer integrity="sha384-VwZKvw6+zCDWDpmg+M3pjOiChRqfzVH+bo0UUvUFp1+mU1JqbCq1+aOdCPC+v2YL" crossorigin="anonymous"></script>
+    
+    <!-- Link para o script principal da aplicação -->
     <script src="script.js" defer></script>
 </head>
 <body>
@@ -35,16 +41,18 @@
         <p>Gerencie suas finanças de forma inteligente e organizada</p>
     </header>
 
+    <!-- Navegação por abas para alternar entre seções da aplicação -->
     <nav class="nav-tabs" role="tablist">
-        <button class="nav-tab active" data-tab="cadastro" id="tab-cadastro" role="tab" aria-selected="true" aria-controls="panel-cadastro">📝 Cadastro</button>
-        <button class="nav-tab" data-tab="importacao" id="tab-importacao" role="tab" aria-selected="false" aria-controls="panel-importacao" tabindex="-1">📤 Importação</button>
-        <button class="nav-tab" data-tab="transacoes" id="tab-transacoes" role="tab" aria-selected="false" aria-controls="panel-transacoes" tabindex="-1">🔄 Transações</button>
-        <button class="nav-tab" data-tab="relatorios" id="tab-relatorios" role="tab" aria-selected="false" aria-controls="panel-relatorios" tabindex="-1">📊 Relatórios</button>
-        <button class="nav-tab" data-tab="configuracoes" id="tab-configuracoes" role="tab" aria-selected="false" aria-controls="panel-configuracoes" tabindex="-1">⚙️ Configurações</button>
+        <button class="nav-tab active" data-tab="panel-cadastro" id="tab-cadastro" role="tab" aria-selected="true" aria-controls="panel-cadastro">📝 Cadastro</button>
+        <button class="nav-tab" data-tab="panel-importacao" id="tab-importacao" role="tab" aria-selected="false" aria-controls="panel-importacao" tabindex="-1">📤 Importação</button>
+        <button class="nav-tab" data-tab="panel-transacoes" id="tab-transacoes" role="tab" aria-selected="false" aria-controls="panel-transacoes" tabindex="-1">🔄 Transações</button>
+        <button class="nav-tab" data-tab="panel-relatorios" id="tab-relatorios" role="tab" aria-selected="false" aria-controls="panel-relatorios" tabindex="-1">📊 Relatórios</button>
+        <button class="nav-tab" data-tab="panel-configuracoes" id="tab-configuracoes" role="tab" aria-selected="false" aria-controls="panel-configuracoes" tabindex="-1">⚙️ Configurações</button>
     </nav>
 
     <main class="container">
-        <section id="cadastro" class="tab-content active" role="tabpanel" aria-labelledby="tab-cadastro">
+        <!-- Seção de Cadastro de Transações -->
+        <section id="panel-cadastro" class="tab-content active" role="tabpanel" aria-labelledby="tab-cadastro">
             <div class="form-container">
                 <h2>📝 Cadastrar Nova Transação</h2>
                 <form id="transactionForm" novalidate>
@@ -95,7 +103,7 @@
                     </div>
 
                     <div class="form-group">
-                        <label for="valor">Valor (R$) *</label>
+                        <label for="valor">Valor (R\$) *</label>
                         <input type="number" id="valor" name="valor" step="0.01" min="0" required placeholder="0,00">
                         <div class="error-message" id="valor-error"></div>
                     </div>
@@ -115,7 +123,8 @@
                         <div class="error-message" id="meio-error"></div>
                     </div>
 
-                    <div id="installmentOptionsContainer" class="form-container" style="display: none;">
+                    <!-- Opções de Pagamento (Cartão de Crédito) - visibilidade controlada pelo JS via classe hidden-field -->
+                    <div id="installmentOptionsContainer" class="form-container hidden-field">
                         <h3>Opções de Pagamento (Cartão de Crédito)</h3>
                         <div class="form-group">
                             <label>Tipo de Pagamento:</label>
@@ -131,7 +140,8 @@
                             </div>
                         </div>
 
-                        <div id="numInstallmentsGroup" class="form-group" style="display: none;">
+                        <!-- Número de Parcelas - visibilidade controlada pelo JS via classe hidden-field -->
+                        <div id="numInstallmentsGroup" class="form-group hidden-field">
                             <label for="numInstallmentsInput">Número de Parcelas *</label>
                             <input type="number" id="numInstallmentsInput" name="numInstallmentsInput" min="1" value="1" required>
                             <div class="error-message" id="numInstallmentsInput-error"></div>
@@ -149,7 +159,8 @@
                         <label for="isRecurringCheckbox">Esta é uma Transação Recorrente?</label>
                     </div>
 
-                    <div id="recurringFieldsContainer" class="form-container" style="display: none;">
+                    <!-- Opções de Recorrência - visibilidade controlada pelo JS via classe hidden-field -->
+                    <div id="recurringFieldsContainer" class="form-container hidden-field">
                         <h3>Opções de Recorrência</h3>
                         <div class="form-group">
                             <label for="recurringFrequencySelect">Frequência de Recorrência *</label>
@@ -174,10 +185,24 @@
             </div>
         </section>
 
-        <section id="importacao" class="tab-content" role="tabpanel" aria-labelledby="tab-importacao">
+        <!-- Seção de Importação de Extratos -->
+        <section id="panel-importacao" class="tab-content" role="tabpanel" aria-labelledby="tab-importacao">
             <div class="form-container">
                 <h2>📥 Importar Extratos Bancários</h2>
                 
+                <!-- NOVO: Seleção do Tipo de Documento para Pré-Classificação -->
+                <div class="form-group">
+                    <label for="documentTypeSelect">Tipo de Documento para Importação *</label>
+                    <select id="documentTypeSelect" name="documentTypeSelect" required>
+                        <option value="">Selecione o tipo de documento</option>
+                        <option value="extrato_bancario">Extrato Bancário</option>
+                        <option value="fatura_cartao_credito">Fatura de Cartão de Crédito</option>
+                        <option value="outros">Outros (genérico)</option>
+                    </select>
+                    <div class="error-message" id="documentTypeSelect-error"></div>
+                </div>
+                <!-- FIM DO NOVO BLOCO -->
+
                 <div class="import-area" id="importArea">
                     <h3>📤 Arraste e solte seus arquivos aqui</h3>
                     <p>ou</p>
@@ -190,7 +215,8 @@
                     </p>
                 </div>
 
-                <div id="importProgress" style="display: none;">
+                <!-- Barra de Progresso da Importação - visibilidade controlada pelo JS via classe hidden-field -->
+                <div id="importProgress" class="hidden-field">
                     <h4>Processando arquivos...</h4>
                     <div class="progress-bar">
                         <div class="progress-fill" id="progressFill"></div>
@@ -206,7 +232,8 @@
             </div>
         </section>
 
-        <section id="transacoes" class="tab-content" role="tabpanel" aria-labelledby="tab-transacoes">
+        <!-- Seção de Transações (listagem e filtros) -->
+        <section id="panel-transacoes" class="tab-content" role="tabpanel" aria-labelledby="tab-transacoes">
             <div class="filters">
                 <div class="form-group">
                     <label for="filterDataInicio">Período:</label>
@@ -243,8 +270,9 @@
                     <div class="table-actions">
                         <input type="text" class="search-box" id="searchBox" placeholder="🔍 Buscar transações...">
                         <button class="btn btn-secondary" id="selectAllBtn">☑️ Selecionar Tudo</button>
+                        <!-- Botões de ação em massa - visibilidade controlada pelo JS -->
                         <button class="btn btn-info" id="editSelectedMeioBtn" style="display: none;">✏️ Modificar Meio (<span id="selectedCountMeio">0</span>)</button>
-                        <button class="btn btn-danger" id="deleteSelectedBtn" style="display: none;">🗑️ Excluir Selecionados (<span id="selectedCount">0</span>)</button>
+                        <button class="btn btn-danger" style="display: none;" id="deleteSelectedBtn">🗑️ Excluir Selecionados (<span id="selectedCount">0</span>)</button>
                     </div>
                 </div>
                 <div style="overflow-x: auto; max-height: 600px;">
@@ -267,13 +295,15 @@
                             </tr>
                         </thead>
                         <tbody id="transactionsBody">
+                            <!-- Conteúdo da tabela preenchido via JavaScript -->
                         </tbody>
                     </table>
                 </div>
             </div>
         </section>
 
-        <section id="relatorios" class="tab-content" role="tabpanel" aria-labelledby="tab-relatorios">
+        <!-- Seção de Relatórios e Gráficos -->
+        <section id="panel-relatorios" class="tab-content" role="tabpanel" aria-labelledby="tab-relatorios">
             <div class="filters">
                 <div class="form-group">
                     <label for="reportDataInicio">Período:</label>
@@ -305,14 +335,18 @@
             </div>
 
             <div class="stats-grid" id="reportStats">
-                </div>
+                <!-- Estatísticas do relatório preenchidas via JavaScript -->
+            </div>
 
             <div class="chart-container-focused">
-                <div class="chart" id="main-chart-area"></div>
+                <div class="chart" id="main-chart-area">
+                    <!-- Gráfico Plotly preenchido via JavaScript -->
+                </div>
             </div>
         </section>
 
-        <section id="configuracoes" class="tab-content" role="tabpanel" aria-labelledby="tab-configuracoes">
+        <!-- Seção de Configurações do Sistema -->
+        <section id="panel-configuracoes" class="tab-content" role="tabpanel" aria-labelledby="tab-configuracoes">
             <div class="form-container">
                 <h2>⚙️ Configurações do Sistema</h2>
                 
@@ -325,6 +359,7 @@
 
                 <h3>📋 Estatísticas do Sistema</h3>
                 <div id="systemStats" class="stats-grid">
+                    <!-- Estatísticas do sistema preenchidas via JavaScript -->
                 </div>
 
                 <h3 style="margin-top: 40px;">🏷️ Gerenciamento de Categorias Personalizáveis</h3>
@@ -374,7 +409,8 @@
                                 </tr>
                             </thead>
                             <tbody id="categoryManagementBody">
-                                </tbody>
+                                <!-- Categorias e Subcategorias preenchidas via JavaScript -->
+                            </tbody>
                         </table>
                     </div>
                 </div>
@@ -382,14 +418,17 @@
         </section>
     </main>
     
+    <!-- Rodapé da Aplicação -->
     <footer class="footer">
         <p style="text-align: center; padding: 20px; color: #6c757d; font-size: 0.9em;">
             &copy; 2025 Sistema de Controle Financeiro Doméstico. Todos os direitos reservados.
         </p>
     </footer>
 
+    <!-- Contêiner global para alertas/notificações (visibilidade controlada pelo JS) -->
     <div id="globalAlertContainer" class="alert-container" role="status"></div>
 
+    <!-- Modal para Modificar Meio de Pagamento (visibilidade controlada pelo JS) -->
     <div id="editMeioModal" class="modal">
         <div class="modal-content">
             <span class="close-button" id="closeEditMeioModalBtn">&times;</span>
@@ -414,6 +453,7 @@
         </div>
     </div>
 
+    <!-- Modal para Detalhes da Transação (visibilidade controlada pelo JS) -->
     <div id="transactionDetailsModal" class="modal">
         <div class="modal-content">
             <span class="close-button" id="closeTransactionDetailsModalBtn">&times;</span>
@@ -432,8 +472,22 @@
                         </tr>
                     </thead>
                     <tbody id="transactionDetailsBody">
+                        <!-- Detalhes da transação preenchidos via JavaScript -->
                     </tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- NOVO: Modal para Confirmação Customizada -->
+    <div id="confirmationModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" id="closeConfirmationModalBtn">&times;</span>
+            <h3 id="confirmationModalTitle">Confirmação Necessária</h3>
+            <p id="confirmationModalMessage">Tem certeza que deseja prosseguir com esta ação?</p>
+            <div style="text-align: right; margin-top: 15px;">
+                <button class="btn btn-secondary" id="cancelConfirmationBtn">Cancelar</button>
+                <button class="btn btn-primary" id="confirmActionBtn">Confirmar</button>
             </div>
         </div>
     </div>

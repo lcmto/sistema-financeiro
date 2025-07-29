@@ -50,8 +50,7 @@ body {
     padding: 0;
     display: flex;
     border-bottom: 2px solid #dee2e6;
-    /* Adicionado para permitir que as abas se ajustem em linhas se houver muitas */
-    flex-wrap: wrap;
+    flex-wrap: wrap; /* Adicionado para permitir que as abas se ajustem em linhas se houver muitas */
 }
 
 .nav-tab {
@@ -156,8 +155,7 @@ body {
 
 .form-group .radio-group input[type="radio"] {
     margin-right: 8px;
-    /* Adjust size for better visibility */
-    transform: scale(1.2);
+    transform: scale(1.2); /* Adjust size for better visibility */
 }
 
 .form-group .radio-group label {
@@ -287,9 +285,27 @@ tr:hover {
 .amount { font-weight: 600; }
 
 /* Componentes de Relatório */
-.chart-container { background: white; border-radius: 15px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1); margin-bottom: 30px; overflow: hidden; }
-.chart-title { background: #f8f9fa; padding: 20px; font-size: 1.3em; font-weight: 600; color: #495057; border-bottom: 1px solid #e9ecef; }
-.chart { height: 400px; padding: 20px; box-sizing: border-box; width: 100%; }
+.chart-container {
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+    margin-bottom: 30px;
+    overflow: hidden;
+}
+.chart-title {
+    background: #f8f9fa;
+    padding: 20px;
+    font-size: 1.3em;
+    font-weight: 600;
+    color: #495057;
+    border-bottom: 1px solid #e9ecef;
+}
+.chart {
+    height: 400px;
+    padding: 20px;
+    box-sizing: border-box;
+    width: 100%;
+}
 
 .filters {
     background: #f8f9fa;
@@ -303,33 +319,120 @@ tr:hover {
 }
 
 /* Alertas Globais */
-.alert-container { position: fixed; top: 0; left: 0; width: 100%; z-index: 10000; padding: 10px; box-sizing: border-box; pointer-events: none; }
-.alert { padding: 15px; border-radius: 8px; margin-bottom: 10px; font-weight: 500; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 600px; margin-left: auto; margin-right: auto; text-align: center; animation: fadeOut 0.5s forwards 4.5s; pointer-events: all; }
+.alert-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 10000;
+    padding: 10px;
+    box-sizing: border-box;
+    pointer-events: none;
+}
+.alert {
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    font-weight: 500;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+    text-align: center;
+    animation: fadeOut 0.5s forwards 4.5s;
+    pointer-events: all;
+}
 .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
 .alert-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-@keyframes fadeOut { from { opacity: 1; } to { opacity: 0; display: none; } }
+@keyframes fadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; display: none; }
+}
 
 /* Componentes de Upload */
 .file-input { display: none; }
-.file-label { display: inline-block; padding: 12px 24px; background: #007bff; color: white; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s ease; }
+.file-label {
+    display: inline-block;
+    padding: 12px 24px;
+    background: #007bff;
+    color: white;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
 .file-label:hover { background: #0056b3; }
 .progress-bar { width: 100%; height: 20px; background: #e9ecef; border-radius: 10px; overflow: hidden; margin: 10px 0; }
 .progress-fill { height: 100%; background: #007bff; transition: width 0.3s ease; }
 
 /* Classes Utilitárias */
-.hidden-field { display: none !important; }
-.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+/* Renomeada para ser mais genérica e alinhada com as sugestões */
+.hidden-field {
+    display: none !important;
+}
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border: 0;
+}
 
 /* Estilo para Modais */
-.modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); justify-content: center; align-items: center; }
-.modal-content { background-color: #fefefe; margin: auto; padding: 30px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); width: 90%; max-width: 500px; position: relative; }
-.close-button { color: #aaa; float: right; font-size: 28px; font-weight: bold; position: absolute; top: 10px; right: 20px; }
-.close-button:hover, .close-button:focus { color: black; text-decoration: none; cursor: pointer; }
+.modal {
+    display: none; /* Inicialmente oculto */
+    position: fixed;
+    z-index: 2000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.4);
+    justify-content: center;
+    align-items: center;
+}
+
+/* Classe para ativar o modal via JavaScript */
+.modal.is-active {
+    display: flex; /* Exibe o modal quando ativado */
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: auto;
+    padding: 30px;
+    border-radius: 15px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    width: 90%;
+    max-width: 500px;
+    position: relative;
+}
+.close-button {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    position: absolute;
+    top: 10px;
+    right: 20px;
+}
+.close-button:hover,
+.close-button:focus {
+    color: black;
+    text-decoration: none;
+    cursor: pointer;
+}
 
 /* Modal de Detalhes da Transação */
 #transactionDetailsModal .modal-content { max-width: 800px; }
 #transactionDetailsTable { width: 100%; border-collapse: collapse; margin-top: 20px; }
-#transactionDetailsTable th, #transactionDetailsTable td { padding: 8px; border: 1px solid #ddd; text-align: left; }
+#transactionDetailsTable th,
+#transactionDetailsTable td { padding: 8px; border: 1px solid #ddd; text-align: left; }
 #transactionDetailsTable th { background-color: #f2f2f2; }
 
 /* Media Queries para Responsividade */
@@ -339,11 +442,17 @@ tr:hover {
     .filters { flex-direction: column; align-items: stretch; }
     .search-box { width: 100%; }
     .table-header { flex-direction: column; align-items: flex-start; }
-    .table-header .table-actions { margin-top: 10px; width: 100%; display: flex; flex-wrap: wrap; gap: 10px; }
+    .table-header .table-actions {
+        margin-top: 10px;
+        width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
     .chart { min-height: 250px; padding: 10px; }
 }
 
-/* * ===============================================
+/* ===============================================
  * NOVAS REGRAS DE ESTILO ADICIONADAS E OTIMIZAÇÕES
  * ===============================================
 */
@@ -402,11 +511,6 @@ tr:hover {
     font-size: 0.9em;
     display: inline-block;
 }
-
-/* Adições ou ajustes menores para garantir que as novas seções se encaixem perfeitamente */
-/* As seções de "Recorrentes", "Faturas" e "Gerenciamento de Categorias"
-   reutilizam as classes existentes (.form-container, .table-container, .stats-grid, etc.)
-   portanto, a maioria dos estilos já é aplicada automaticamente. */
 
 /* Ajuste para o rodapé */
 .footer {

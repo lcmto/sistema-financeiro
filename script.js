@@ -26,6 +26,11 @@ const CONSTANTS = {
     // Constantes para tipo de pagamento (parcelamento).
     PAYMENT_TYPE_SINGLE: 'single',
     PAYMENT_TYPE_INSTALLMENT: 'installment',
+
+    // MELHORIA: Constantes para tipos de documento (evitar magic strings)
+    DOC_TYPE_BANK_STATEMENT: 'extrato_bancario',
+    DOC_TYPE_CREDIT_CARD_BILL: 'fatura_cartao_credito',
+    DOC_TYPE_GENERIC: 'outros',
 };
 
 // ==================== REGRAS DE CATEGORIZAÇÃO AUTOMÁTICA ====================
@@ -103,6 +108,39 @@ const CATEGORY_KEYWORDS = [
     { terms: ['lucas salario', 'salario lucas'], tipo: CONSTANTS.TRANSACTION_TYPE_INCOME, category: 'Lucas salário', subcategory: '' },
 ];
 
+// ==================== REGRAS DE IMPORTAÇÃO POR TIPO DE DOCUMENTO ====================
+// Define regras específicas para cada tipo de documento a ser importado.
+// Isso permite que o sistema tire conclusões sobre a natureza das transações
+// e preencha automaticamente campos como 'meio de pagamento' ou ajuste o 'tipo' (receita/despesa).
+const DOCUMENT_TYPE_RULES = {
+    [CONSTANTS.DOC_TYPE_BANK_STATEMENT]: { // MELHORIA: Usando constante
+        description: 'Extrato Bancário (Transações diversas)',
+        // Se o arquivo não fornecer um meio claro, assume-se transferência como padrão para extratos.
+        defaultMeio: 'transferencia',
+        // Não há termos especiais que sobreponham a lógica de valor ou detecção padrão para o tipo (receita/despesa)
+        // em um extrato bancário, pois o sinal do valor já é bem indicativo.
+        special_terms: []
+    },
+    [CONSTANTS.DOC_TYPE_CREDIT_CARD_BILL]: { // MELHORIA: Usando constante
+        description: 'Fatura de Cartão de Crédito',
+        // Para faturas de cartão, o meio de pagamento é sempre "cartao_credito", independente do que o arquivo diga.
+        defaultMeio: 'cartao_credito',
+        // Termos especiais que podem indicar um tipo de transação (receita/despesa) que difere do sinal do valor
+        // em uma fatura de cartão de crédito. Por exemplo, um pagamento de fatura é uma "receita" para o controle pessoal,
+        // mesmo que o valor possa aparecer como um débito ou crédito no extrato da fatura.
+        special_terms: [
+            // Exemplos de termos que indicam Receita (créditos no cartão, pagamentos, estornos)
+            { terms: ['pagamento recebido', 'pagamento_cartao', 'credito', 'estorno', 'reembolso', 'devolucao', 'cashback'], type: CONSTANTS.TRANSACTION_TYPE_INCOME },
+            // Exemplos de termos que indicam Despesa (encargos, juros, multas)
+            { terms: ['juros', 'encargos', 'multa', 'anuidade', 'tarifa', 'servico'], type: CONSTANTS.TRANSACTION_TYPE_EXPENSE }
+        ]
+    },
+    [CONSTANTS.DOC_TYPE_GENERIC]: { // MELHORIA: Usando constante
+        description: 'Documento Genérico',
+        defaultMeio: 'outros', // Se não houver detecção, usa o padrão "outros".
+        special_terms: [] // Sem regras especiais, rely on autoCategorizeFromDescription
+    }
+};
 
 // ==================== DATABASE CONFIGURATION (Dexie.js) ====================
 // Instância do banco de dados IndexedDB via Dexie.js.
@@ -210,6 +248,76 @@ const appState = {
 };
 
 
+// ==================== FUNÇÕES AUXILIARES DE IMPORTAÇÃO (MOVIDAS PARA CIMA) ====================
+// MELHORIA: Movidas para cima para garantir que sejam definidas antes de serem referenciadas.
+
+/**
+ * Manipula o evento de arrastar arquivo sobre a área de importação.
+ * @param {DragEvent} event
+ */
+function handleDragOver(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.classList.add('dragover');
+}
+
+/**
+ * Manipula o evento de sair da área de importação com o arquivo arrastado.
+ * @param {DragEvent} event
+ */
+function handleDragLeave(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.classList.remove('dragover');
+}
+
+/**
+ * MELHORIA: Nova função auxiliar para processar e validar arquivos, reduzindo duplicação.
+ * @param {FileList} files - Lista de arquivos selecionados.
+ */
+function processAndValidateFiles(files) {
+    const documentTypeSelect = appState.domElements.documentTypeSelect;
+    const documentType = documentTypeSelect ? documentTypeSelect.value : '';
+
+    if (!documentType) {
+        showAlert('Por favor, selecione o tipo de documento antes de importar.', CONSTANTS.ALERT_TYPE_ERROR);
+        if (documentTypeSelect) {
+            documentTypeSelect.classList.add('is-invalid');
+            const errorMessageElement = document.getElementById(`${documentTypeSelect.id}-error`);
+            if (errorMessageElement) {
+                errorMessageElement.textContent = 'Este campo é obrigatório.';
+                errorMessageElement.style.display = 'block';
+                errorMessageElement.setAttribute('aria-live', 'assertive');
+            }
+        }
+        return;
+    }
+    clearValidationError(documentTypeSelect); // Limpa o erro se a seleção for válida
+
+    if (files && files.length > 0) {
+        processFiles(files, documentType);
+    }
+}
+
+/**
+ * Manipula o evento de seleção de arquivos do input.
+ * @param {Event} event - O evento 'change' do input de arquivo.
+ */
+function handleFileSelect(event) {
+    processAndValidateFiles(event.target.files);
+}
+
+/**
+ * Manipula o evento de soltar arquivo na área de importação.
+ * @param {DragEvent} event
+ */
+function handleFileDrop(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.classList.remove('dragover');
+    processAndValidateFiles(event.dataTransfer.files);
+}
+
 // ==================== INICIALIZAÇÃO ====================
 // Garante que o sistema seja inicializado após o carregamento completo do DOM.
 document.addEventListener('DOMContentLoaded', initializeSystem);
@@ -249,8 +357,8 @@ async function initializeSystem() {
 
         setupReportDates(); // Define o período padrão para relatórios.
         updateCategories(); // Carrega categorias nos selects.
-        loadCategoriesManagementTable(); // Carrega tabela de gerenciamento de categorias.
-        
+        loadCategoriesManagementTable();
+
         showAlert('Sistema carregado com sucesso!', CONSTANTS.ALERT_TYPE_SUCCESS);
         console.log('Sistema inicializado com sucesso!');
         debugInfo(); // Exibe informações de depuração.
@@ -275,9 +383,13 @@ function cacheDomElements() {
 
     appState.domElements.isRecurringCheckbox = document.getElementById('isRecurringCheckbox');
     appState.domElements.recurringFrequencySelect = document.getElementById('recurringFrequencySelect');
+    appState.domElements.recurringFieldsContainer = document.getElementById('recurringFieldsContainer'); // Adicionado
+
     appState.domElements.paymentTypeSingle = document.getElementById('paymentTypeSingle');
     appState.domElements.paymentTypeInstallment = document.getElementById('paymentTypeInstallment');
     appState.domElements.numInstallmentsInput = document.getElementById('numInstallmentsInput');
+    appState.domElements.numInstallmentsGroup = document.getElementById('numInstallmentsGroup'); // Adicionado
+    appState.domElements.installmentOptionsContainer = document.getElementById('installmentOptionsContainer'); // Adicionado
 
     appState.domElements.categoryManagementForm = document.getElementById('categoryManagementForm');
     appState.domElements.categoryTypeSelect = document.getElementById('categoryType');
@@ -285,6 +397,7 @@ function cacheDomElements() {
     appState.domElements.subcategoryNameInput = document.getElementById('subcategoryName');
     appState.domElements.saveCategoryBtn = document.getElementById('saveCategoryBtn');
     appState.domElements.categoryManagementBody = document.getElementById('categoryManagementBody');
+    appState.domElements.clearCategoryFormBtn = document.getElementById('clearCategoryFormBtn'); // Adicionado
 
     appState.domElements.transactionsBody = document.getElementById('transactionsBody');
     appState.domElements.masterCheckbox = document.getElementById('masterCheckbox');
@@ -294,7 +407,9 @@ function cacheDomElements() {
     appState.domElements.editSelectedMeioBtn = document.getElementById('editSelectedMeioBtn');
     appState.domElements.editMeioModal = document.getElementById('editMeioModal');
     appState.domElements.modalMeioSelect = document.getElementById('modalMeio');
-
+    appState.domElements.closeEditMeioModalBtn = document.getElementById('closeEditMeioModalBtn'); // Adicionado
+    appState.domElements.cancelEditMeioBtn = document.getElementById('cancelEditMeioBtn'); // Adicionado
+    appState.domElements.applyEditMeioBtn = document.getElementById('applyEditMeioBtn'); // Adicionado
     appState.domElements.reportDataInicioInput = document.getElementById('reportDataInicio');
     appState.domElements.reportDataFimInput = document.getElementById('reportDataFim');
     appState.domElements.mainChartArea = document.getElementById('main-chart-area');
@@ -307,30 +422,52 @@ function cacheDomElements() {
     appState.domElements.filterTipoSelect = document.getElementById('filterTipo');
     appState.domElements.filterCategoriaSelect = document.getElementById('filterCategoria');
     appState.domElements.searchBoxInput = document.getElementById('searchBox');
-    appState.domElements.sortDateBtn = document.getElementById('sortDateBtn'); // Adicionado
+    appState.domElements.sortDateBtn = document.getElementById('sortDateBtn');
     appState.domElements.sortIconSpan = document.getElementById('sortIcon');
     appState.domElements.transactionStatsContainer = document.getElementById('transactionStats');
 
-    appState.domElements.fileInput = document.getElementById('fileInput'); // Adicionado
-    appState.domElements.importArea = document.getElementById('importArea'); // Adicionado
-    appState.domElements.undoImportBtn = document.getElementById('undoImportBtn'); // Adicionado
+    appState.domElements.fileInput = document.getElementById('fileInput');
+    appState.domElements.importArea = document.getElementById('importArea');
+    appState.domElements.undoImportBtn = document.getElementById('undoImportBtn');
     appState.domElements.importProgressDiv = document.getElementById('importProgress');
     appState.domElements.progressFillDiv = document.getElementById('progressFill');
     appState.domElements.progressTextP = document.getElementById('progressText');
+    // NOVO: Adiciona referência ao select do tipo de documento
+    appState.domElements.documentTypeSelect = document.getElementById('documentTypeSelect');
 
-    appState.domElements.transactionForm = document.getElementById('transactionForm'); // Adicionado
-    appState.domElements.clearFormBtn = document.getElementById('clearFormBtn'); // Adicionado
-    appState.domElements.applyFiltersBtn = document.getElementById('applyFiltersBtn'); // Adicionado
-    appState.domElements.clearFiltersBtn = document.getElementById('clearFiltersBtn'); // Adicionado
-    appState.domElements.selectAllBtn = document.getElementById('selectAllBtn'); // Adicionado
+    appState.domElements.transactionForm = document.getElementById('transactionForm');
+    appState.domElements.clearFormBtn = document.getElementById('clearFormBtn');
+    appState.domElements.applyFiltersBtn = document.getElementById('applyFiltersBtn');
+    appState.domElements.clearFiltersBtn = document.getElementById('clearFiltersBtn');
+    appState.domElements.selectAllBtn = document.getElementById('selectAllBtn');
 
-    appState.domElements.generateReportsBtn = document.getElementById('generateReportsBtn'); // Adicionado
-    appState.domElements.exportExcelReportBtn = document.getElementById('exportExcelReportBtn'); // Adicionado
-    appState.domElements.exportPdfReportBtn = document.getElementById('exportPdfReportBtn'); // Adicionado
+    appState.domElements.generateReportsBtn = document.getElementById('generateReportsBtn');
+    appState.domElements.exportExcelReportBtn = document.getElementById('exportExcelReportBtn');
+    appState.domElements.exportPdfReportBtn = document.getElementById('exportPdfReportBtn');
+
+    appState.domElements.exportAllDataBtn = document.getElementById('exportAllDataBtn'); // Adicionado
+    appState.domElements.importDataBtn = document.getElementById('importDataBtn'); // Adicionado
+    appState.domElements.clearAllDataBtn = document.getElementById('clearAllDataBtn'); // Adicionado
+    appState.domElements.systemStats = document.getElementById('systemStats'); // Adicionado
 
     appState.domElements.transactionDetailsModal = document.getElementById('transactionDetailsModal');
     appState.domElements.transactionDetailsTitle = document.getElementById('transactionDetailsTitle');
     appState.domElements.transactionDetailsBody = document.getElementById('transactionDetailsBody');
+    appState.domElements.closeTransactionDetailsModalBtn = document.getElementById('closeTransactionDetailsModalBtn'); // Adicionado
+
+    // NOVO: Referências para o modal de confirmação customizado
+    appState.domElements.confirmationModal = document.getElementById('confirmationModal');
+    appState.domElements.confirmationModalTitle = document.getElementById('confirmationModalTitle');
+    appState.domElements.confirmationModalMessage = document.getElementById('confirmationModalMessage');
+    appState.domElements.closeConfirmationModalBtn = document.getElementById('closeConfirmationModalBtn');
+    appState.domElements.cancelConfirmationBtn = document.getElementById('cancelConfirmationBtn');
+    appState.domElements.confirmActionBtn = document.getElementById('confirmActionBtn');
+
+    // Grupos de formulário para alternar visibilidade via classe
+    appState.domElements.categoriaGroup = document.getElementById('categoriaGroup');
+    appState.domElements.outraCategoriaGroup = document.getElementById('outraCategoriaGroup');
+    appState.domElements.subcategoriaGroup = document.getElementById('subcategoriaGroup');
+    appState.domElements.outraSubcategoriaGroup = document.getElementById('outraSubcategoriaGroup');
 }
 
 // ==================== REVISÃO: Organização de Event Listeners ====================
@@ -346,7 +483,7 @@ function setupEventListeners() {
         setupReportListeners();
         setupCategoryManagementListeners();
         setupGlobalSettingsListeners();
-        setupModalListeners(); // Para modais genéricos
+        setupModalListeners();
         console.log('Event listeners configurados com sucesso!');
     } catch (error) {
         console.error('Erro ao configurar event listeners:', error);
@@ -420,7 +557,7 @@ function setupTransactionFormListeners() {
 }
 
 function setupImportListeners() {
-    const { fileInput, importArea, undoImportBtn } = appState.domElements;
+    const { fileInput, importArea, undoImportBtn, documentTypeSelect } = appState.domElements;
 
     if (fileInput) fileInput.addEventListener('change', handleFileSelect);
     if (importArea) {
@@ -428,53 +565,15 @@ function setupImportListeners() {
         importArea.addEventListener('drop', handleFileDrop);
         importArea.addEventListener('dragleave', handleDragLeave);
     }
+    // CORREÇÃO CRÍTICA: O erro anterior estava aqui. 'undoImportBtn' é o elemento DOM.
     if (undoImportBtn) undoImportBtn.addEventListener('click', undoLastImport);
-}
 
-/**
- * Manipula o evento de seleção de arquivos do input.
- * @param {Event} event - O evento 'change' do input de arquivo.
- */
-function handleFileSelect(event) {
-    const files = event.target.files;
-    if (files.length > 0) {
-        processFiles(files);
+    // NOVO: Listener para o campo de seleção do tipo de documento para limpar validação
+    if (documentTypeSelect) {
+        documentTypeSelect.addEventListener('change', () => clearValidationError(documentTypeSelect));
     }
 }
 
-/**
- * Manipula o evento de arrastar arquivo sobre a área de importação.
- * @param {DragEvent} event
- */
-function handleDragOver(event) {
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.classList.add('dragover');
-}
-
-/**
- * Manipula o evento de soltar arquivo na área de importação.
- * @param {DragEvent} event
- */
-function handleFileDrop(event) {
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.classList.remove('dragover');
-    const files = event.dataTransfer.files;
-    if (files.length > 0) {
-        processFiles(files);
-    }
-}
-
-/**
- * Manipula o evento de sair da área de importação com o arquivo arrastado.
- * @param {DragEvent} event
- */
-function handleDragLeave(event) {
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.classList.remove('dragover');
-}
 function setupTransactionsTableListeners() {
     const { applyFiltersBtn, clearFiltersBtn, searchBoxInput, sortDateBtn,
             masterCheckbox, selectAllBtn, deleteSelectedBtn, editSelectedMeioBtn } = appState.domElements;
@@ -504,7 +603,6 @@ function setupTransactionsTableListeners() {
 
 function setupReportListeners() {
     const { generateReportsBtn, exportExcelReportBtn, exportPdfReportBtn, reportChartSelect, chartTypeDespesasSelect } = appState.domElements;
-
     if (generateReportsBtn) generateReportsBtn.addEventListener('click', generateReports);
     if (exportExcelReportBtn) exportExcelReportBtn.addEventListener('click', exportReportToExcel);
     if (exportPdfReportBtn) exportPdfReportBtn.addEventListener('click', exportReportToPdf);
@@ -513,10 +611,7 @@ function setupReportListeners() {
 }
 
 function setupGlobalSettingsListeners() {
-    const exportAllDataBtn = document.getElementById('exportAllDataBtn');
-    const importDataBtn = document.getElementById('importDataBtn');
-    const clearAllDataBtn = document.getElementById('clearAllDataBtn');
-
+    const { exportAllDataBtn, importDataBtn, clearAllDataBtn } = appState.domElements;
     if (exportAllDataBtn) exportAllDataBtn.addEventListener('click', exportData);
     if (importDataBtn) importDataBtn.addEventListener('click', importData);
     if (clearAllDataBtn) clearAllDataBtn.addEventListener('click', clearAllData);
@@ -541,23 +636,36 @@ function setupCategoryManagementListeners() {
 }
 
 function setupModalListeners() {
-    const { transactionDetailsModal, editMeioModal } = appState.domElements;
-    const closeTransactionDetailsModalBtn = document.getElementById('closeTransactionDetailsModalBtn');
-    const closeEditMeioModalBtn = document.getElementById('closeEditMeioModalBtn');
-    const cancelEditMeioBtn = document.getElementById('cancelEditMeioBtn');
-    const applyEditMeioBtn = document.getElementById('applyEditMeioBtn');
+    const { transactionDetailsModal, editMeioModal, closeTransactionDetailsModalBtn, closeEditMeioModalBtn, cancelEditMeioBtn, applyEditMeioBtn,
+    closeConfirmationModalBtn, cancelConfirmationBtn } = appState.domElements; // Adiciona referências
 
     if (closeTransactionDetailsModalBtn) {
         closeTransactionDetailsModalBtn.addEventListener('click', () => {
             if (transactionDetailsModal) {
-                transactionDetailsModal.style.display = 'none';
+                transactionDetailsModal.classList.remove('is-active');
             }
         });
     }
 
-    if (closeEditMeioModalBtn) closeEditMeioModalBtn.addEventListener('click', () => { if (editMeioModal) editMeioModal.style.display = 'none'; });
-    if (cancelEditMeioBtn) cancelEditMeioBtn.addEventListener('click', () => { if (editMeioModal) editMeioModal.style.display = 'none'; });
+    if (closeEditMeioModalBtn) closeEditMeioModalBtn.addEventListener('click', () => { if (editMeioModal) editMeioModal.classList.remove('is-active'); });
+    if (cancelEditMeioBtn) cancelEditMeioBtn.addEventListener('click', () => { if (editMeioModal) editMeioModal.classList.remove('is-active'); });
     if (applyEditMeioBtn) applyEditMeioBtn.addEventListener('click', applyBulkMeioChange);
+
+    // NOVO: Listeners para o modal de confirmação
+    if (closeConfirmationModalBtn) {
+        closeConfirmationModalBtn.addEventListener('click', () => {
+            if (appState.domElements.confirmationModal) appState.domElements.confirmationModal.classList.remove('is-active');
+            // Também dispara o callback com 'false' se o modal for fechado sem confirmar
+            if (appState.domElements.confirmActionBtn._callback) appState.domElements.confirmActionBtn._callback(false);
+        });
+    }
+    if (cancelConfirmationBtn) {
+        cancelConfirmationBtn.addEventListener('click', () => {
+            if (appState.domElements.confirmationModal) appState.domElements.confirmationModal.classList.remove('is-active');
+            // Também dispara o callback com 'false' se cancelado
+            if (appState.domElements.confirmActionBtn._callback) appState.domElements.confirmActionBtn._callback(false);
+        });
+    }
 }
 
 
@@ -591,13 +699,13 @@ async function showTab(tabName) {
         }
 
         // Lógica específica para carregar dados de cada aba ao ser ativada.
-        if (tabName === 'transacoes') {
+        if (tabName === 'panel-transacoes') { // MELHORIA: Usa o novo ID da seção
             await loadTransactions();
             updateFilterCategories();
-        } else if (tabName === 'relatorios') {
+        } else if (tabName === 'panel-relatorios') { // MELHORIA: Usa o novo ID da seção
             await generateReports();
             setTimeout(resizePlotlyCharts, 100);
-        } else if (tabName === 'configuracoes') {
+        } else if (tabName === 'panel-configuracoes') { // MELHORIA: Usa o novo ID da seção
             updateSystemStats();
             loadCategoriesManagementTable();
         }
@@ -616,7 +724,7 @@ function updateCategories() {
         const { tipoSelect, categoriaSelect, subcategoriaSelect, outraCategoriaInput, outraSubcategoriaInput } = appState.domElements;
 
         if (!categoriaSelect || !subcategoriaSelect || !outraCategoriaInput || !outraSubcategoriaInput || !tipoSelect) {
-            console.warn('Elementos de categoria/subcategoria não encontrados. Pulando atualização.');
+            console.warn("Elementos de categoria/subcategoria não encontrados. Pulando atualização.");
             return;
         }
 
@@ -673,9 +781,8 @@ function updateSubcategories() {
     try {
         console.log('Atualizando subcategorias...');
         const { tipoSelect, categoriaSelect, subcategoriaSelect, outraSubcategoriaInput } = appState.domElements;
-
         if (!subcategoriaSelect || !outraSubcategoriaInput || !tipoSelect || !categoriaSelect) {
-            console.warn('Elementos de subcategoria não encontrados. Pulando atualização.');
+            console.warn("Elementos de subcategoria não encontrados. Pulando atualização.");
             return;
         }
 
@@ -713,14 +820,10 @@ function updateSubcategories() {
     }
 }
 
-// Alterna a visibilidade dos campos 'Ou Outra Categoria/Subcategoria'.
+// Alterna a visibilidade dos campos 'Ou Outra Categoria/Subcategoria' usando classes CSS.
 function toggleCustomCategoryFields() {
-    const { categoriaSelect, outraCategoriaInput, subcategoriaSelect, outraSubcategoriaInput } = appState.domElements;
-
-    const categoriaGroup = document.getElementById('categoriaGroup');
-    const outraCategoriaGroup = document.getElementById('outraCategoriaGroup');
-    const subcategoriaGroup = document.getElementById('subcategoriaGroup');
-    const outraSubcategoriaGroup = document.getElementById('outraSubcategoriaGroup');
+    const { categoriaSelect, outraCategoriaInput, subcategoriaSelect, outraSubcategoriaInput,
+            categoriaGroup, outraCategoriaGroup, subcategoriaGroup, outraSubcategoriaGroup } = appState.domElements;
 
     if (!categoriaSelect || !outraCategoriaInput || !subcategoriaSelect || !outraSubcategoriaInput ||
         !categoriaGroup || !outraCategoriaGroup || !subcategoriaGroup || !outraSubcategoriaGroup) {
@@ -784,7 +887,6 @@ function autoCategorizeFromDescription(description, currentTipo) {
 // Preenche automaticamente campos do formulário com base na descrição.
 async function autoFillFromDescription() {
     const { descricaoInput, meioSelect, tipoSelect, categoriaSelect, subcategoriaSelect, outraCategoriaInput, outraSubcategoriaInput } = appState.domElements;
-
     if (!descricaoInput || !meioSelect || !tipoSelect || !categoriaSelect || !subcategoriaSelect || !outraCategoriaInput || !outraSubcategoriaInput) {
         console.warn('Elementos de formulário de preenchimento automático não encontrados.');
         return;
@@ -796,7 +898,7 @@ async function autoFillFromDescription() {
     const currentTipo = tipoSelect.value;
 
     // Tenta detectar e preencher o meio de pagamento se ainda não selecionado.
-    if (!meioSelect.value) { 
+    if (!meioSelect.value) {
         const detectedMeio = detectMeioPagamento(null, description);
         if (detectedMeio && meioSelect.querySelector(`option[value="${detectedMeio}"]`)) {
             meioSelect.value = detectedMeio;
@@ -862,13 +964,12 @@ async function autoFillFromDescription() {
     }
 }
 
-// Controla a visibilidade dos campos relacionados à recorrência.
+// Controla a visibilidade dos campos relacionados à recorrência usando classes CSS.
 function toggleRecurringFields() {
-    const { isRecurringCheckbox, recurringFrequencySelect } = appState.domElements;
-    const recurringFieldsContainer = document.getElementById('recurringFieldsContainer');
+    const { isRecurringCheckbox, recurringFieldsContainer, recurringFrequencySelect } = appState.domElements;
 
     if (isRecurringCheckbox && recurringFieldsContainer && recurringFrequencySelect) {
-        recurringFieldsContainer.style.display = isRecurringCheckbox.checked ? 'block' : 'none';
+        recurringFieldsContainer.classList.toggle('hidden-field', !isRecurringCheckbox.checked);
         recurringFrequencySelect.required = isRecurringCheckbox.checked;
         if (!isRecurringCheckbox.checked) {
             recurringFrequencySelect.value = '';
@@ -877,13 +978,11 @@ function toggleRecurringFields() {
     }
 }
 
-// Controla a visibilidade dos campos relacionados ao parcelamento.
+// Controla a visibilidade dos campos relacionados ao parcelamento usando classes CSS.
 function toggleInstallmentFields() {
-    const { paymentTypeInstallment, numInstallmentsInput } = appState.domElements;
-    const numInstallmentsGroup = document.getElementById('numInstallmentsGroup');
-
+    const { paymentTypeInstallment, numInstallmentsGroup, numInstallmentsInput } = appState.domElements;
     if (paymentTypeInstallment && numInstallmentsGroup && numInstallmentsInput) {
-        numInstallmentsGroup.style.display = paymentTypeInstallment.checked ? 'flex' : 'none';
+        numInstallmentsGroup.classList.toggle('hidden-field', !paymentTypeInstallment.checked);
         numInstallmentsInput.required = paymentTypeInstallment.checked;
         if (!paymentTypeInstallment.checked) {
             numInstallmentsInput.value = 1;
@@ -892,16 +991,15 @@ function toggleInstallmentFields() {
     }
 }
 
-// Controla a visibilidade dos campos dependentes do meio de transação (ex: parcelamento para cartão de crédito).
+// Controla a visibilidade dos campos dependentes do meio de transação (ex: parcelamento para cartão de crédito) usando classes CSS.
 function toggleMeioDependentFields() {
-    const { meioSelect, paymentTypeSingle, numInstallmentsInput } = appState.domElements;
-    const installmentOptionsContainer = document.getElementById('installmentOptionsContainer');
+    const { meioSelect, installmentOptionsContainer, paymentTypeSingle, numInstallmentsInput } = appState.domElements;
 
     if (meioSelect && installmentOptionsContainer && paymentTypeSingle && numInstallmentsInput) {
         if (meioSelect.value === 'cartao_credito') {
-            installmentOptionsContainer.style.display = 'block';
+            installmentOptionsContainer.classList.remove('hidden-field');
         } else {
-            installmentOptionsContainer.style.display = 'none';
+            installmentOptionsContainer.classList.add('hidden-field');
             paymentTypeSingle.checked = true;
             numInstallmentsInput.value = 1;
         }
@@ -939,7 +1037,163 @@ function enforceMutualExclusivity() {
 
 
 // ==================== FORMULÁRIO DE TRANSAÇÃO (CADASTRO) ====================
-// Manipula o envio do formulário de transação (cadastro/edição).
+// NOVA FUNÇÃO AUXILIAR: Coleta os dados do formulário de transação.
+function getTransactionDataFromForm(formElements) {
+    return {
+        dataTransacao: formElements.data.value,
+        tipo: formElements.tipo.value,
+        categoriaFinal: formElements.outraCategoria.value.trim() || formElements.categoria.value,
+        subcategoriaFinal: formElements.outraSubcategoria.value.trim() || formElements.subcategoria.value || '',
+        valorOriginal: parseFloat(formElements.valor.value),
+        meio: formElements.meio.value,
+        descricaoOriginal: formElements.descricao.value || '',
+        isRecurringChecked: formElements.isRecurringCheckbox?.checked,
+        recurringFrequency: formElements.isRecurringCheckbox?.checked ? formElements.recurringFrequencySelect.value : null,
+        isInstallmentSelected: formElements.paymentType?.value === CONSTANTS.PAYMENT_TYPE_INSTALLMENT,
+        numInstallments: parseInt(formElements.numInstallmentsInput.value)
+    };
+}
+
+// NOVA FUNÇÃO AUXILIAR: Atualiza a estrutura de categorias se uma nova categoria/subcategoria for usada.
+async function updateCategoriesIfNeeded(tipo, categoriaFinal, subcategoriaFinal) {
+    let categoriesDataChanged = false;
+    if (categoriaFinal) {
+        if (!appState.categoriesData[tipo]) {
+            appState.categoriesData[tipo] = {};
+            categoriesDataChanged = true;
+        }
+        if (!appState.categoriesData[tipo][categoriaFinal]) {
+            appState.categoriesData[tipo][categoriaFinal] = [];
+            categoriesDataChanged = true;
+        }
+    }
+    if (categoriaFinal && subcategoriaFinal && !appState.categoriesData[tipo][categoriaFinal].includes(subcategoriaFinal)) {
+        appState.categoriesData[tipo][categoriaFinal].push(subcategoriaFinal);
+        categoriesDataChanged = true;
+    }
+    if (categoriesDataChanged) {
+        await db.appSettings.update('generalSettings', { categoriesData: appState.categoriesData });
+    }
+}
+
+// NOVA FUNÇÃO AUXILIAR: Constrói o array de transações a serem salvas, manipulando parcelamentos e recorrências.
+async function buildTransactionsArray(formData, originalTransactionId) {
+    let transactionsToSave = [];
+    const { dataTransacao, tipo, categoriaFinal, subcategoriaFinal, valorOriginal, meio, descricaoOriginal,
+            isRecurringChecked, recurringFrequency, isInstallmentSelected, numInstallments } = formData;
+
+    // Lógica para exclusão de série antiga em caso de edição.
+    if (originalTransactionId) {
+        const existingTransaction = await db.transactions.get(originalTransactionId);
+        if (existingTransaction && (existingTransaction.isInstallment || existingTransaction.isRecurring)) {
+            // MELHORIA: Usa modal de confirmação customizado
+            return new Promise((resolve) => {
+                const message = existingTransaction.isInstallment
+                    ? 'Esta transação é parte de uma série parcelada. Ao editar o número de parcelas ou o valor total, a série antiga será excluída e uma nova será criada. Continuar?'
+                    : 'Esta transação era recorrente. Ao converter para parcelamento/única, a série recorrente antiga será excluída. Continuar?';
+
+                showConfirmationModal('Atenção: Edição de Série!', message, async (confirmed) => {
+                    if (confirmed) {
+                        let idsToDelete = [];
+                        if (existingTransaction.isInstallment) {
+                            const groupIdToDelete = existingTransaction.groupId || originalTransactionId;
+                            idsToDelete = await db.transactions.where('groupId').equals(groupIdToDelete).primaryKeys();
+                        } else if (existingTransaction.isRecurring) {
+                            const recurringIdToDelete = existingTransaction.parentRecurringId || originalTransactionId;
+                            idsToDelete = await db.transactions.where('parentRecurringId').equals(recurringIdToDelete).primaryKeys();
+                            if (existingTransaction.id === recurringIdToDelete) {
+                                idsToDelete.push(recurringIdToDelete);
+                            }
+                        }
+                        if (idsToDelete.length > 0) {
+                            await db.transactions.bulkDelete(idsToDelete);
+                        }
+                        resolve(await _buildTransactionsArrayInternal(formData, null)); // Chamada interna com originalTransactionId = null
+                    } else {
+                        resolve(null); // Retorna null para indicar que a operação foi cancelada
+                    }
+                });
+            });
+        }
+    }
+    // Lógica original continua aqui, mas encapsulada ou chamada após a confirmação
+    return _buildTransactionsArrayInternal(formData, originalTransactionId);
+}
+
+// Função auxiliar para evitar duplicação de lógica após a confirmação
+async function _buildTransactionsArrayInternal(formData, originalTransactionId) {
+    let transactionsToSave = [];
+    const { dataTransacao, tipo, categoriaFinal, subcategoriaFinal, valorOriginal, meio, descricaoOriginal,
+            isRecurringChecked, recurringFrequency, isInstallmentSelected, numInstallments } = formData;
+
+    // Lógica para transações parceladas (aplica-se apenas a cartão de crédito).
+    if (meio === 'cartao_credito' && isInstallmentSelected) {
+        const valuePerInstallment = parseFloat((valorOriginal / numInstallments).toFixed(2));
+
+        // Ajusta centavos para a última parcela, garantindo que o total seja exato.
+        const totalExactValue = parseFloat((valuePerInstallment * numInstallments).toFixed(2));
+        const difference = parseFloat((valorOriginal - totalExactValue).toFixed(2));
+
+        // Define um groupId para agrupar todas as parcelas da mesma compra.
+        const installmentGroupId = originalTransactionId || Date.now();
+
+        // Cria uma transação para cada parcela.
+        for (let i = 1; i <= numInstallments; i++) {
+            // Calcula a data da parcela (primeira parcela na data original, as demais em meses subsequentes).
+            const installmentDate = addMonths(new Date(dataTransacao + 'T00:00:00'), i - 1).toISOString().split('T')[0];
+            let installmentValue = valuePerInstallment;
+            if (i === numInstallments && difference !== 0) {
+                installmentValue = parseFloat((installmentValue + difference).toFixed(2));
+            }
+
+            transactionsToSave.push({
+                data: installmentDate,
+                tipo: tipo,
+                categoria: categoriaFinal,
+                subcategoria: subcategoriaFinal,
+                valor: installmentValue,
+                meio: meio,
+                descricao: descricaoOriginal,
+                dataCreated: new Date().toISOString(),
+                isRecurring: false,
+                recurringFrequency: null,
+                nextOccurrenceDate: null,
+                parentRecurringId: null,
+                isInstallment: true,
+                installmentInfo: {
+                    current: i,
+                    total: numInstallments
+                },
+                groupId: installmentGroupId
+            });
+        }
+    } else {
+        // Lógica para transação única ou recorrente.
+        const transaction = {
+            id: originalTransactionId || Date.now(), // Usa ID existente ou gera um novo
+            data: dataTransacao,
+            tipo: tipo,
+            categoria: categoriaFinal,
+            subcategoria: subcategoriaFinal,
+            valor: valorOriginal,
+            meio: meio,
+            descricao: descricaoOriginal,
+            dataCreated: new Date().toISOString(),
+            isInstallment: false,
+            installmentInfo: null,
+            groupId: null,
+            isRecurring: isRecurringChecked,
+            recurringFrequency: recurringFrequency,
+            nextOccurrenceDate: isRecurringChecked ? calculateNextOccurrence(dataTransacao, recurringFrequency) : null,
+            parentRecurringId: null // Este é o modelo original, não tem pai
+        };
+        transactionsToSave.push(transaction);
+    }
+    return transactionsToSave;
+}
+
+
+// A FUNÇÃO PRINCIPAL FICA MAIS LIMPA E LEGÍVEL
 async function handleTransactionSubmit(event) {
     event.preventDefault();
     try {
@@ -955,184 +1209,36 @@ async function handleTransactionSubmit(event) {
 
         clearAllValidationErrors();
 
-        // Coleta os dados do formulário.
-        const categoriaFinal = formElements.outraCategoria.value.trim() || formElements.categoria.value;
-        const subcategoriaFinal = formElements.outraSubcategoria.value.trim() || formElements.subcategoria.value || '';
-        const tipo = formElements.tipo.value;
-        const valorOriginal = parseFloat(formElements.valor.value);
-        const meio = formElements.meio.value;
-        const descricaoOriginal = formElements.descricao.value || '';
-        const dataTransacao = formElements.data.value;
+        // Passo 1: Coleta de dados do formulário
+        const formData = getTransactionDataFromForm(formElements);
 
-        // ==================== REVISÃO: Atualização de Categorias ====================
-        // Atualiza a estrutura de categorias se uma nova categoria/subcategoria for usada.
-        // Esta lógica foi movida para ANTES da criação das transações para garantir
-        // que 'appState.categoriesData' esteja atualizado antes de ser salvo no DB.
-        let categoriesDataChanged = false;
-        if (categoriaFinal) {
-            if (!appState.categoriesData[tipo]) {
-                appState.categoriesData[tipo] = {};
-                categoriesDataChanged = true;
-            }
-            if (!appState.categoriesData[tipo][categoriaFinal]) {
-                appState.categoriesData[tipo][categoriaFinal] = [];
-                categoriesDataChanged = true;
-            }
+        // Passo 2: Atualização de categorias se necessário
+        await updateCategoriesIfNeeded(formData.tipo, formData.categoriaFinal, formData.subcategoriaFinal);
+
+        // Passo 3: Construção dos objetos de transação (parcelado, recorrente, único)
+        const transactionsToSave = await buildTransactionsArray(formData, appState.editingTransactionId);
+        if (transactionsToSave === null) { // Operação cancelada pelo usuário
+            return;
         }
-        if (categoriaFinal && subcategoriaFinal && !appState.categoriesData[tipo][categoriaFinal].includes(subcategoriaFinal)) {
-            appState.categoriesData[tipo][categoriaFinal].push(subcategoriaFinal);
-            categoriesDataChanged = true;
-        }
-        if (categoriesDataChanged) {
-            await db.appSettings.update('generalSettings', { categoriesData: appState.categoriesData });
-        }
-        // ============================================================================
-
-        let transactionsToSave = [];
-        let originalTransactionId = appState.editingTransactionId;
-
-        const isRecurringChecked = formElements.isRecurringCheckbox?.checked;
-        const isInstallmentSelected = formElements.paymentType?.value === CONSTANTS.PAYMENT_TYPE_INSTALLMENT;
-
-        // Lógica para transações parceladas (aplica-se apenas a cartão de crédito).
-        if (meio === 'cartao_credito' && isInstallmentSelected) {
-            const numInstallments = parseInt(formElements.numInstallmentsInput.value);
-            const valuePerInstallment = parseFloat((valorOriginal / numInstallments).toFixed(2));
-
-            // Ajusta centavos para a última parcela, garantindo que o total seja exato.
-            const totalExactValue = parseFloat((valuePerInstallment * numInstallments).toFixed(2));
-            const difference = parseFloat((valorOriginal - totalExactValue).toFixed(2));
-
-            // Lógica para exclusão de série antiga em caso de edição.
-            if (originalTransactionId) {
-                const existingTransaction = await db.transactions.get(originalTransactionId);
-                if (existingTransaction && (existingTransaction.isInstallment || existingTransaction.isRecurring)) {
-                    const confirmationMessage = existingTransaction.isInstallment
-                        ? 'Esta transação é parte de uma série parcelada. Ao editar o número de parcelas ou o valor total, a série antiga será excluída e uma nova será criada. Continuar?'
-                        : 'Esta transação era recorrente. Ao converter para parcelamento, a série recorrente antiga será excluída. Continuar?';
-                    if (!confirm(confirmationMessage)) {
-                        return;
-                    }
-                    let idsToDelete = [];
-                    if (existingTransaction.isInstallment) {
-                        const groupIdToDelete = existingTransaction.groupId || originalTransactionId;
-                        idsToDelete = await db.transactions.where('groupId').equals(groupIdToDelete).primaryKeys();
-                    } else if (existingTransaction.isRecurring) {
-                        const recurringIdToDelete = existingTransaction.parentRecurringId || originalTransactionId;
-                        idsToDelete = await db.transactions.where('parentRecurringId').equals(recurringIdToDelete).primaryKeys();
-                        // Também exclua o modelo original se ele estiver sendo editado e transformado
-                        if (existingTransaction.id === recurringIdToDelete) {
-                            idsToDelete.push(recurringIdToDelete);
-                        }
-                    }
-                    if (idsToDelete.length > 0) {
-                        await db.transactions.bulkDelete(idsToDelete);
-                    }
-                    originalTransactionId = null; // Garante que uma nova série será criada
-                }
-            }
-            
-            // Define um groupId para agrupar todas as parcelas da mesma compra.
-            const installmentGroupId = originalTransactionId || Date.now();
-
-            // Cria uma transação para cada parcela.
-            for (let i = 1; i <= numInstallments; i++) {
-                // Calcula a data da parcela (primeira parcela na data original, as demais em meses subsequentes).
-                const installmentDate = addMonths(new Date(dataTransacao + 'T00:00:00'), i - 1).toISOString().split('T')[0];
-                let installmentValue = valuePerInstallment;
-                if (i === numInstallments && difference !== 0) {
-                    installmentValue = parseFloat((installmentValue + difference).toFixed(2));
-                }
-
-                transactionsToSave.push({
-                    data: installmentDate,
-                    tipo: tipo,
-                    categoria: categoriaFinal,
-                    subcategoria: subcategoriaFinal,
-                    valor: installmentValue,
-                    meio: meio,
-                    descricao: descricaoOriginal,
-                    dataCreated: new Date().toISOString(),
-                    isRecurring: false,
-                    recurringFrequency: null,
-                    nextOccurrenceDate: null,
-                    parentRecurringId: null,
-                    isInstallment: true,
-                    installmentInfo: {
-                        current: i,
-                        total: numInstallments
-                    },
-                    groupId: installmentGroupId
-                });
-            }
-        } else {
-            // Lógica para transação única ou recorrente.
-            if (originalTransactionId) {
-                const existingTransaction = await db.transactions.get(originalTransactionId);
-                // Se estiver editando uma transação que era parte de uma série (parcelada ou recorrente) e a transformando em única.
-                if (existingTransaction && (existingTransaction.isInstallment || existingTransaction.isRecurring)) {
-                    if (!confirm('Esta transação era parte de uma série (parcelada ou recorrente). Ao converter para única, a série antiga será excluída. Continuar?')) {
-                        return;
-                    }
-                    let idsToDelete = [];
-                    if (existingTransaction.isInstallment) {
-                        const groupIdToDelete = existingTransaction.groupId || originalTransactionId;
-                        idsToDelete = await db.transactions.where('groupId').equals(groupIdToDelete).primaryKeys();
-                    } else if (existingTransaction.isRecurring) {
-                        const recurringIdToDelete = existingTransaction.parentRecurringId || originalTransactionId;
-                        idsToDelete = await db.transactions.where('parentRecurringId').equals(recurringIdToDelete).primaryKeys();
-                        // Se o modelo original também está sendo editado para ser uma transação única, ele deve ser incluído para exclusão de série
-                        if (existingTransaction.id === recurringIdToDelete) {
-                             idsToDelete.push(recurringIdToDelete);
-                        }
-                    }
-                    // Remove o ID da transação atual da lista a ser excluída, pois ela será atualizada.
-                    const indexOfCurrent = idsToDelete.indexOf(originalTransactionId);
-                    if (indexOfCurrent > -1) idsToDelete.splice(indexOfCurrent, 1);
-                    
-                    if (idsToDelete.length > 0) {
-                        await db.transactions.bulkDelete(idsToDelete);
-                    }
-                }
-            }
-
-            // Cria o objeto da transação.
-            const transaction = {
-                id: originalTransactionId || Date.now(), // Usa ID existente ou gera um novo
-                data: dataTransacao,
-                tipo: tipo,
-                categoria: categoriaFinal,
-                subcategoria: subcategoriaFinal,
-                valor: valorOriginal,
-                meio: meio,
-                descricao: descricaoOriginal,
-                dataCreated: new Date().toISOString(),
-                isInstallment: false,
-                installmentInfo: null,
-                groupId: null,
-                isRecurring: isRecurringChecked,
-                recurringFrequency: isRecurringChecked ? formElements.recurringFrequencySelect.value : null,
-                nextOccurrenceDate: isRecurringChecked ? calculateNextOccurrence(dataTransacao, formElements.recurringFrequencySelect.value) : null,
-                parentRecurringId: null // Este é o modelo original, não tem pai
-            };
-            transactionsToSave.push(transaction);
+        if (transactionsToSave.length === 0) {
+            showAlert('Nenhuma transação para salvar.', CONSTANTS.ALERT_TYPE_INFO);
+            return;
         }
 
-        // Salva as transações no banco de dados.
-        if (transactionsToSave.length > 0) {
-            // BulkAdd é mais eficiente para múltiplos registros, mas 'put' para um único pode ser update.
-            // Para séries parceladas, a primeira transação é 'put' (pode ser atualização), as demais são 'bulkAdd'.
-            const firstTransaction = transactionsToSave[0];
-            await db.transactions.put(firstTransaction); // 'put' pode atualizar se id já existe
+        // Passo 4: Salvar as transações no banco de dados.
+        // BulkAdd é mais eficiente para múltiplos registros, mas 'put' para um único pode ser update.
+        // Para séries parceladas, a primeira transação é 'put' (pode ser atualização), as demais são 'bulkAdd'.
+        const firstTransaction = transactionsToSave[0];
+        await db.transactions.put(firstTransaction); // 'put' pode atualizar se id já existe
 
-            const subsequentTransactions = transactionsToSave.slice(1);
-            if (subsequentTransactions.length > 0) {
-                await db.transactions.bulkAdd(subsequentTransactions); // 'bulkAdd' só adiciona, não atualiza
-            }
-            showAlert('Transação(ões) salva(s) com sucesso!', CONSTANTS.ALERT_TYPE_SUCCESS);
+        const subsequentTransactions = transactionsToSave.slice(1);
+        if (subsequentTransactions.length > 0) {
+            await db.transactions.bulkAdd(subsequentTransactions); // 'bulkAdd' só adiciona, não atualiza
         }
+        showAlert('Transação(ões) salva(s) com sucesso!', CONSTANTS.ALERT_TYPE_SUCCESS);
 
-        appState.editingTransactionId = null; // Limpa o ID da transação em edição
+        // Passo 5: Limpar o formulário e atualizar a UI
+        appState.editingTransactionId = null;
         clearForm();
         await loadTransactions(); // Recarrega com await para garantir que esteja atualizado
         await generateReports(); // Recarrega com await
@@ -1149,11 +1255,6 @@ function validateForm(elements) {
     const errors = {};
     const { dataInput, tipoSelect, categoriaSelect, outraCategoriaInput, valorInput, meioSelect, descricaoInput,
             isRecurringCheckbox, recurringFrequencySelect, paymentTypeInstallment, numInstallmentsInput } = appState.domElements;
-
-    // Remove atributos de validação para reiniciar o estado.
-    // A função clearValidationError já lida com a remoção dos atributos e mensagens.
-    // Não é necessário chamar clearAllValidationErrors() aqui, pois displayValidationErrors o fará.
-
     // Validação da Data.
     if (!elements.data || !elements.data.value) {
         errors.data = 'Data é obrigatória.';
@@ -1170,14 +1271,14 @@ function validateForm(elements) {
     }
 
     // Validação de Categoria (uma das duas deve ser preenchida, não ambas).
-    const categoriaPreDefinida = elements.categoria?.value;
+    const categoriaPredefinida = elements.categoria?.value;
     const outraCategoria = elements.outraCategoria?.value.trim();
 
-    if (!categoriaPreDefinida && !outraCategoria) {
+    if (!categoriaPredefinida && !outraCategoria) {
         errors.categoria = 'Selecione uma categoria ou digite uma nova.';
         categoriaSelect?.classList.add('is-invalid');
         outraCategoriaInput?.classList.add('is-invalid');
-    } else if (categoriaPreDefinida && outraCategoria) {
+    } else if (categoriaPredefinida && outraCategoria) {
         errors.categoria = 'Selecione apenas uma opção para categoria.';
         errors.outraCategoria = 'Selecione apenas uma opção para categoria.';
         categoriaSelect?.classList.add('is-invalid');
@@ -1365,11 +1466,11 @@ async function loadCategoriesManagementTable() {
                     ulSubcategories.className = 'subcategories-list';
                     subcategorias.forEach(sub => {
                         const li = document.createElement('li');
-                        li.textContent = sub; // REVISÃO: Usando textContent para evitar XSS
+                        li.textContent = sub; // Usando textContent para evitar XSS
                         ulSubcategories.appendChild(li);
                     });
                     tdSubcategorias.appendChild(ulSubcategories);
-                    
+
                     const addSubcategoryBtn = document.createElement('button');
                     addSubcategoryBtn.className = 'btn btn-sm btn-info';
                     addSubcategoryBtn.onclick = () => addSubcategoryPrompt(tipo, categoria);
@@ -1393,7 +1494,7 @@ async function loadCategoriesManagementTable() {
                     deleteBtn.className = 'btn btn-sm btn-danger';
                     deleteBtn.onclick = () => deleteCategoryOrSubcategory(tipo, categoria);
                     deleteBtn.setAttribute('aria-label', `Excluir categoria ${categoria}`);
-                    deleteBtn.textContent = '��️';
+                    deleteBtn.innerHTML = '&#x1F5D1;'; // Ícone da lixeira com entidade HTML
                     tdActions.appendChild(deleteBtn);
 
                     row.appendChild(tdActions);
@@ -1521,10 +1622,10 @@ function validateCategoryForm(elements) {
 
 // Limpa o formulário de gerenciamento de categorias.
 function clearCategoryForm() {
-    const { categoryManagementForm, saveCategoryBtn, categoryTypeSelect, categoryNameInput, subcategoryNameInput } = appState.domElements;
-    if (categoryManagementForm) {
-        categoryManagementForm.reset();
-        if (saveCategoryBtn) saveCategoryBtn.textContent = '�� Salvar Categoria/Subcategoria';
+    const { categoryManagementForm: form, saveCategoryBtn, categoryTypeSelect, categoryNameInput, subcategoryNameInput } = appState.domElements;
+    if (form) {
+        form.reset();
+        if (saveCategoryBtn) saveCategoryBtn.textContent = '💾 Salvar Categoria/Subcategoria';
         appState.editingCategoryId = null;
         clearAllValidationErrors();
         // Clear specific fields if they might retain invalid state
@@ -1570,14 +1671,20 @@ async function deleteCategoryOrSubcategory(type, category, subcategory = null) {
     }
 
     if (subcategory) {
-        if (!confirm(`Tem certeza que deseja excluir a subcategoria "${subcategory}" da categoria "${category}" (${type})?`)) {
-            return;
-        }
-        const index = appState.categoriesData[type][category].indexOf(subcategory);
-        if (index > -1) {
-            appState.categoriesData[type][category].splice(index, 1);
-            showAlert(`Subcategoria "${subcategory}" excluída!`, CONSTANTS.ALERT_TYPE_SUCCESS);
-        }
+        // MELHORIA: Usa modal de confirmação customizado
+        showConfirmationModal('Confirmar Exclusão', `Tem certeza que deseja excluir a subcategoria "${subcategory}" da categoria "${category}" (${type})?`, async (confirmed) => {
+            if (confirmed) {
+                const index = appState.categoriesData[type][category].indexOf(subcategory);
+                if (index > -1) {
+                    appState.categoriesData[type][category].splice(index, 1);
+                    showAlert(`Subcategoria "${subcategory}" excluída!`, CONSTANTS.ALERT_TYPE_SUCCESS);
+                }
+                await db.appSettings.update('generalSettings', { categoriesData: appState.categoriesData });
+                loadCategoriesManagementTable();
+                updateCategories();
+                updateFilterCategories();
+            }
+        });
     } else {
         const transactionsUsingCategory = await db.transactions
             .where({ tipo: type, categoria: category })
@@ -1588,19 +1695,18 @@ async function deleteCategoryOrSubcategory(type, category, subcategory = null) {
             return;
         }
 
-        if (!confirm(`Tem certeza que deseja excluir a categoria "${category}" (${type}) e todas as suas subcategorias? Esta ação não pode ser desfeita.`)) {
-            return;
-        }
-
-        delete appState.categoriesData[type][category];
-        showAlert(`Categoria "${category}" excluída!`, CONSTANTS.ALERT_TYPE_SUCCESS);
+        // MELHORIA: Usa modal de confirmação customizado
+        showConfirmationModal('Confirmar Exclusão', `Tem certeza que deseja excluir a categoria "${category}" (${type}) e todas as suas subcategorias? Esta ação não pode ser desfeita.`, async (confirmed) => {
+            if (confirmed) {
+                delete appState.categoriesData[type][category];
+                showAlert(`Categoria "${category}" excluída!`, CONSTANTS.ALERT_TYPE_SUCCESS);
+                await db.appSettings.update('generalSettings', { categoriesData: appState.categoriesData });
+                loadCategoriesManagementTable();
+                updateCategories();
+                updateFilterCategories();
+            }
+        });
     }
-
-    await db.appSettings.update('generalSettings', { categoriesData: appState.categoriesData });
-
-    loadCategoriesManagementTable();
-    updateCategories();
-    updateFilterCategories();
 }
 
 
@@ -1632,9 +1738,10 @@ function detectMeioPagamento(meioStr, descricaoStr) {
 }
 
 // Processa múltiplos arquivos de importação (CSV, XLSX, XLS).
-async function processFiles(files) {
+// MODIFICADO: Agora recebe o documentType selecionado pelo usuário.
+async function processFiles(files, documentType) {
     if (files.length === 0) return;
-    console.log('Processando', files.length, 'arquivo(s)');
+    console.log('Processando', files.length, 'arquivo(s) do tipo:', documentType);
     showImportProgress();
 
     appState.lastImportedTransactionIds = [];
@@ -1649,11 +1756,11 @@ async function processFiles(files) {
             let promise;
             switch (extension) {
                 case 'csv':
-                    promise = processCSV(file);
+                    promise = processCSV(file, documentType); // NOVO: Passa documentType
                     break;
                 case 'xlsx':
                 case 'xls':
-                    promise = processExcel(file);
+                    promise = processExcel(file, documentType); // NOVO: Passa documentType
                     break;
                 case 'pdf':
                     promise = Promise.resolve(showAlert(`A importação de dados de PDF é complexa e não está disponível nesta versão para extração de tabelas. Por favor, utilize CSV ou Excel para o arquivo: ${file.name}.`, CONSTANTS.ALERT_TYPE_ERROR));
@@ -1685,13 +1792,15 @@ async function processFiles(files) {
 }
 
 // Processa um arquivo CSV e importa as transações.
-async function processCSV(file) {
+// MODIFICADO: Agora recebe o documentType para aplicar regras específicas.
+async function processCSV(file, documentType) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = async function(event) {
             try {
                 const csv = event.target?.result;
                 if (!csv) throw new Error("Conteúdo do CSV vazio.");
+                // CORREÇÃO: Usar '\n' para dividir linhas, não '\n'
                 const lines = csv.split('\n');
                 const importedTransactions = [];
 
@@ -1710,6 +1819,9 @@ async function processCSV(file) {
                     showAlert(`Arquivo CSV ${file.name} não possui colunas 'Data' e 'Valor' reconhecíveis.`, CONSTANTS.ALERT_TYPE_ERROR);
                     return reject(new Error('CSV headers missing'));
                 }
+
+                // NOVO: Obtém as regras específicas para o tipo de documento selecionado
+                const rules = DOCUMENT_TYPE_RULES[documentType] || DOCUMENT_TYPE_RULES[CONSTANTS.DOC_TYPE_GENERIC]; // MELHORIA: Usa constante
 
                 for (let i = 1; i < lines.length; i++) {
                     const line = lines[i].trim();
@@ -1739,19 +1851,52 @@ async function processCSV(file) {
                         continue;
                     }
 
-                    // Determina o tipo de transação (receita/despesa).
-                    let tipoTransacao = CONSTANTS.TRANSACTION_TYPE_EXPENSE;
-                    const lowerCaseTipoLancamento = String(tipoLancamentoStr).toLowerCase();
-                    if (lowerCaseTipoLancamento.includes('estorno') || lowerCaseTipoLancamento.includes('pagamento') || lowerCaseTipoLancamento.includes('receita')) {
-                        tipoTransacao = CONSTANTS.TRANSACTION_TYPE_INCOME;
-                    } else if (lowerCaseTipoLancamento.includes('compra') || lowerCaseTipoLancamento.includes('despesa')) {
-                        tipoTransacao = CONSTANTS.TRANSACTION_TYPE_EXPENSE;
-                    } else {
-                        tipoTransacao = valor >= 0 ? CONSTANTS.TRANSACTION_TYPE_INCOME : CONSTANTS.TRANSACTION_TYPE_EXPENSE;
-                    }
-                    const meioFinal = detectMeioPagamento(meioPagamentoStr, descricaoStr);
+                    // === NOVO: Aplica a lógica de pré-classificação baseada no tipo de documento ===
 
-                    // Tenta categorizar automaticamente a transação.
+                    let tipoTransacao; // Determina o tipo de transação (receita/despesa)
+                    const lowerCaseDescricao = String(descricaoStr).toLowerCase();
+
+                    // 1. Prioriza as regras de termos especiais definidas para o tipo de documento
+                    let matchedSpecialTerm = false;
+                    if (rules.special_terms && rules.special_terms.length > 0) {
+                        for (const termRule of rules.special_terms) {
+                            if (termRule.terms.some(term => lowerCaseDescricao.includes(term))) {
+                                tipoTransacao = termRule.type;
+                                matchedSpecialTerm = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    // 2. Se não houver termo especial, usa o tipo de lançamento do arquivo ou o sinal do valor
+                    if (!matchedSpecialTerm) {
+                        const lowerCaseTipoLancamento = String(tipoLancamentoStr).toLowerCase();
+                        if (lowerCaseTipoLancamento.includes('estorno') || lowerCaseTipoLancamento.includes('pagamento') || lowerCaseTipoLancamento.includes('receita')) {
+                            tipoTransacao = CONSTANTS.TRANSACTION_TYPE_INCOME;
+                        } else if (lowerCaseTipoLancamento.includes('compra') || lowerCaseTipoLancamento.includes('despesa')) {
+                            tipoTransacao = CONSTANTS.TRANSACTION_TYPE_EXPENSE;
+                        } else {
+                            tipoTransacao = valor >= 0 ? CONSTANTS.TRANSACTION_TYPE_INCOME : CONSTANTS.TRANSACTION_TYPE_EXPENSE;
+                        }
+                    }
+
+                    // Determina o meio de pagamento
+                    let meioFinal;
+                    // Se o tipo de documento tem um 'defaultMeio' forte (não 'outros'), usa-o.
+                    if (rules.defaultMeio && rules.defaultMeio !== 'outros') {
+                        meioFinal = rules.defaultMeio;
+                    } else {
+                        // Caso contrário, tenta detectar do arquivo.
+                        meioFinal = detectMeioPagamento(meioPagamentoStr, descricaoStr);
+                        // Se a detecção falhar (retornar 'outros') e o tipo de documento tiver um 'defaultMeio' configurado, usa-o.
+                        if (meioFinal === 'outros' && rules.defaultMeio) {
+                            meioFinal = rules.defaultMeio;
+                        }
+                    }
+
+                    // === FIM DA NOVA LÓGICA ===
+
+                    // Tenta categorizar automaticamente a transação (mantém a lógica existente)
                     const { category: detectedCategory, subcategory: detectedSubcategory } = autoCategorizeFromDescription(descricaoStr, tipoTransacao);
                     const categoriaFinal = detectedCategory || categoriaOriginalStr;
                     const subcategoriaFinal = detectedSubcategory || subcategoriaOriginalStr;
@@ -1760,11 +1905,11 @@ async function processCSV(file) {
                     const transaction = {
                         data: formatDate(dataStr), // Garante formato 'YYYY-MM-DD' para data.
                         descricao: descricaoStr || '',
-                        valor: Math.abs(valor),
-                        tipo: tipoTransacao,
+                        valor: Math.abs(valor), // Armazena o valor absoluto, o 'tipo' determina receita/despesa
+                        tipo: tipoTransacao, // Usa o tipo determinado pela nova lógica
                         categoria: categoriaFinal,
                         subcategoria: subcategoriaFinal,
-                        meio: meioFinal,
+                        meio: meioFinal, // Usa o meio determinado pela nova lógica
                         dataCreated: new Date().toISOString(),
                         isRecurring: false,
                         recurringFrequency: null,
@@ -1784,8 +1929,8 @@ async function processCSV(file) {
                     showAlert(`${importedTransactions.length} transações importadas do arquivo ${file.name}`, CONSTANTS.ALERT_TYPE_SUCCESS);
                     resolve();
                 } else {
-                    showAlert(`Nenhuma transação válida encontrada no arquivo ${file.name}.`, CONSTANTS.ALERT_TYPE_ERROR);
-                    reject(new Error('No valid transactions in CSV'));
+                    showAlert(`Nenhuma transação válida encontrada no arquivo ${file.name}.`, CONSTANTS.ALERT_TYPE_INFO);
+                    resolve(); // Resolve mesmo se vazio para não bloquear outras importações
                 }
             } catch (error) {
                 console.error('Erro ao processar CSV:', error);
@@ -1799,7 +1944,8 @@ async function processCSV(file) {
 }
 
 // Processa um arquivo Excel (XLSX, XLS) e importa as transações.
-async function processExcel(file) {
+// MODIFICADO: Agora recebe o documentType para aplicar regras específicas.
+async function processExcel(file, documentType) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = async function(event) {
@@ -1814,7 +1960,7 @@ async function processExcel(file) {
 
                 // Valida se o Excel tem dados.
                 if (jsonData.length < 2) {
-                    showAlert(`Arquivo Excel ${file.name} está vazio ou não possui dados.`, CONSTANTS.ALERT_TYPE_ERROR);
+                    showAlert(`Arquivo Excel ${file.name} está vazio ou não possui dados.`, CONSTANTS.ALERT_TYPE_INFO);
                     return reject(new Error('Excel file empty'));
                 }
 
@@ -1833,6 +1979,9 @@ async function processExcel(file) {
                     showAlert(`Arquivo Excel ${file.name} não possui colunas 'Data' e 'Valor' reconhecíveis.`, CONSTANTS.ALERT_TYPE_ERROR);
                     return reject(new Error('Excel headers missing'));
                 }
+
+                // NOVO: Obtém as regras específicas para o tipo de documento selecionado
+                const rules = DOCUMENT_TYPE_RULES[documentType] || DOCUMENT_TYPE_RULES[CONSTANTS.DOC_TYPE_GENERIC]; // MELHORIA: Usa constante
 
                 const importedTransactions = [];
                 for (let i = 1; i < jsonData.length; i++) {
@@ -1863,24 +2012,55 @@ async function processExcel(file) {
                         continue;
                     }
 
-                    // Determina o tipo de transação (receita/despesa).
-                    let tipoTransacao = CONSTANTS.TRANSACTION_TYPE_EXPENSE;
-                    const lowerCaseTipoLancamento = String(tipoLancamentoValue).toLowerCase();
-                    if (lowerCaseTipoLancamento.includes('estorno') || lowerCaseTipoLancamento.includes('pagamento') || lowerCaseTipoLancamento.includes('receita')) {
-                        tipoTransacao = CONSTANTS.TRANSACTION_TYPE_INCOME;
-                    } else if (lowerCaseTipoLancamento.includes('compra') || lowerCaseTipoLancamento.includes('despesa')) {
-                        tipoTransacao = CONSTANTS.TRANSACTION_TYPE_EXPENSE;
-                    } else {
-                        tipoTransacao = valor >= 0 ? CONSTANTS.TRANSACTION_TYPE_INCOME : CONSTANTS.TRANSACTION_TYPE_EXPENSE;
+                    // === NOVO: Aplica a lógica de pré-classificação baseada no tipo de documento ===
+
+                    let tipoTransacao; // Determina o tipo de transação (receita/despesa)
+                    const lowerCaseDescricao = String(descricaoValue).toLowerCase();
+
+                    // 1. Prioriza as regras de termos especiais definidas para o tipo de documento
+                    let matchedSpecialTerm = false;
+                    if (rules.special_terms && rules.special_terms.length > 0) {
+                        for (const termRule of rules.special_terms) {
+                            if (termRule.terms.some(term => lowerCaseDescricao.includes(term))) {
+                                tipoTransacao = termRule.type;
+                                matchedSpecialTerm = true;
+                                break;
+                            }
+                        }
                     }
 
-                    const meioFinal = detectMeioPagamento(meioPagamentoValue, descricaoValue);
+                    // 2. Se não houver termo especial, usa o tipo de lançamento do arquivo ou o sinal do valor
+                    if (!matchedSpecialTerm) {
+                        const lowerCaseTipoLancamento = String(tipoLancamentoValue).toLowerCase();
+                        if (lowerCaseTipoLancamento.includes('estorno') || lowerCaseTipoLancamento.includes('pagamento') || lowerCaseTipoLancamento.includes('receita')) {
+                            tipoTransacao = CONSTANTS.TRANSACTION_TYPE_INCOME;
+                        } else if (lowerCaseTipoLancamento.includes('compra') || lowerCaseTipoLancamento.includes('despesa')) {
+                            tipoTransacao = CONSTANTS.TRANSACTION_TYPE_EXPENSE;
+                        } else {
+                            tipoTransacao = valor >= 0 ? CONSTANTS.TRANSACTION_TYPE_INCOME : CONSTANTS.TRANSACTION_TYPE_EXPENSE;
+                        }
+                    }
+
+                    // Determina o meio de pagamento
+                    let meioFinal;
+                    // Se o tipo de documento tem um 'defaultMeio' forte (não 'outros'), usa-o.
+                    if (rules.defaultMeio && rules.defaultMeio !== 'outros') {
+                        meioFinal = rules.defaultMeio;
+                    } else {
+                        // Caso contrário, tenta detectar do arquivo.
+                        meioFinal = detectMeioPagamento(meioPagamentoValue, descricaoValue);
+                        // Se a detecção falhar (retornar 'outros') e o tipo de documento tiver um 'defaultMeio' configurado, usa-o.
+                        if (meioFinal === 'outros' && rules.defaultMeio) {
+                            meioFinal = rules.defaultMeio;
+                        }
+                    }
+
+                    // === FIM DA NOVA LÓGICA ===
 
                     // Tenta categorizar automaticamente a transação.
                     const { category: detectedCategory, subcategory: detectedSubcategory } = autoCategorizeFromDescription(String(descricaoValue), tipoTransacao);
                     const categoriaFinal = detectedCategory || String(categoriaOriginalValue);
                     const subcategoriaFinal = detectedSubcategory || String(subcategoriaOriginalValue);
-
                     // Cria o objeto da transação.
                     const transaction = {
                         data: formatDate(dataValue), // Garante formato 'YYYY-MM-DD' para data.
@@ -1909,7 +2089,7 @@ async function processExcel(file) {
                     showAlert(`${importedTransactions.length} transações importadas do arquivo ${file.name}`, CONSTANTS.ALERT_TYPE_SUCCESS);
                     resolve();
                 } else {
-                    showAlert(`Nenhuma transação válida encontrada no arquivo ${file.name}.`, CONSTANTS.ALERT_TYPE_ERROR);
+                    showAlert(`Nenhuma transação válida encontrada no arquivo ${file.name}.`, CONSTANTS.ALERT_TYPE_INFO);
                     reject(new Error('No valid transactions in Excel'));
                 }
             } catch (error) {
@@ -1930,27 +2110,28 @@ async function undoLastImport() {
         return;
     }
 
-    if (!confirm(`Tem certeza que deseja desfazer a última importação (${appState.lastImportedTransactionIds.length} transações)?`)) {
-        return;
-    }
+    // MELHORIA: Usa modal de confirmação customizado
+    showConfirmationModal('Confirmar Desfazer', `Tem certeza que deseja desfazer a última importação (${appState.lastImportedTransactionIds.length} transação(ões))?`, async (confirmed) => {
+        if (confirmed) {
+            try {
+                await db.transactions.bulkDelete(appState.lastImportedTransactionIds);
+                showAlert(`${appState.lastImportedTransactionIds.length} transação(ões) da última importação foram removidas!`, CONSTANTS.ALERT_TYPE_SUCCESS);
+                appState.lastImportedTransactionIds = [];
+                await db.appSettings.update('generalSettings', {
+                    lastImportedTransactionIds: appState.lastImportedTransactionIds
+                });
 
-    try {
-        await db.transactions.bulkDelete(appState.lastImportedTransactionIds);
-        showAlert(`${appState.lastImportedTransactionIds.length} transação(ões) da última importação foram removidas!`, CONSTANTS.ALERT_TYPE_SUCCESS);
-        appState.lastImportedTransactionIds = [];
-        await db.appSettings.update('generalSettings', {
-            lastImportedTransactionIds: appState.lastImportedTransactionIds
-        });
-
-        // Recarrega dados na interface.
-        loadTransactions();
-        generateReports();
-        updateFilterCategories();
-        updateSystemStats();
-    } catch (error) {
-        console.error('Erro ao desfazer importação:', error);
-        showAlert('Erro ao desfazer importação: ' + error.message, CONSTANTS.ALERT_TYPE_ERROR);
-    }
+                // Recarrega dados na interface.
+                loadTransactions();
+                generateReports();
+                updateFilterCategories();
+                updateSystemStats();
+            } catch (error) {
+                console.error('Erro ao desfazer importação:', error);
+                showAlert('Erro ao desfazer importação: ' + error.message, CONSTANTS.ALERT_TYPE_ERROR);
+            }
+        }
+    });
 }
 
 // ==================== REVISÃO: Função formatDate (Robustez na Análise de Datas) ====================
@@ -2000,11 +2181,11 @@ function formatDate(dateInput) {
     }
 }
 
-// Mostra a barra de progresso da importação.
+// Mostra a barra de progresso da importação usando classes CSS.
 function showImportProgress() {
     const { importProgressDiv } = appState.domElements;
     if (importProgressDiv) {
-        importProgressDiv.style.display = 'block';
+        importProgressDiv.classList.remove('hidden-field');
         console.log('Barra de progresso de importação mostrada.');
     } else {
         console.warn('Elemento #importProgress não encontrado ao tentar mostrar o progresso.');
@@ -2023,11 +2204,11 @@ function updateImportProgress(percentage) {
     }
 }
 
-// Esconde a barra de progresso.
+// Esconde a barra de progresso usando classes CSS.
 function hideImportProgress() {
     const { importProgressDiv } = appState.domElements;
     if (importProgressDiv) {
-        importProgressDiv.style.display = 'none';
+        importProgressDiv.classList.add('hidden-field');
         console.log('Barra de progresso de importação escondida.');
     } else {
         console.warn('Elemento #importProgress não encontrado ao tentar esconder o progresso.');
@@ -2065,9 +2246,9 @@ async function loadTransactions() {
             // Adiciona informações de parcela à descrição se for transação parcelada.
             if (transaction.isInstallment && transaction.installmentInfo) {
                 description = `${transaction.descricao} (Parcela ${transaction.installmentInfo.current}/${transaction.installmentInfo.total})`;
-            } 
+            }
             const row = document.createElement('tr');
-            
+
             // ==================== REVISÃO: Prevenção de XSS na Renderização da Tabela ====================
             // Usando .textContent para evitar injeção de HTML e garantir que os dados sejam tratados como texto puro.
             const checkboxCell = document.createElement('td');
@@ -2099,7 +2280,7 @@ async function loadTransactions() {
             row.appendChild(subcategoryCell);
 
             const descriptionCell = document.createElement('td');
-            descriptionCell.textContent = description; // REVISÃO: Usando textContent
+            descriptionCell.textContent = description; // Usando textContent
             row.appendChild(descriptionCell);
 
             const amountCell = document.createElement('td');
@@ -2125,7 +2306,7 @@ async function loadTransactions() {
             deleteBtn.className = 'btn btn-sm btn-danger';
             deleteBtn.onclick = () => deleteTransaction(transaction.id);
             deleteBtn.setAttribute('aria-label', `Excluir transação de ${description}`);
-            deleteBtn.textContent = '🗑️';
+            deleteBtn.innerHTML = '&#x1F5D1;'; // Ícone da lixeira com entidade HTML
             actionsCell.appendChild(deleteBtn);
 
             row.appendChild(actionsCell);
@@ -2192,26 +2373,27 @@ async function deleteSelectedTransactions() {
         return;
     }
 
-    if (!confirm(`Tem certeza que deseja excluir ${selectedCheckboxes.length} transação(ões) selecionada(s)?`)) {
-        return;
-    }
-
-    const idsToDelete = Array.from(selectedCheckboxes).map(cb => parseFloat(cb.dataset.id));
-    try {
-        await db.transactions.bulkDelete(idsToDelete);
-        showAlert(`${selectedCheckboxes.length} transação(ões) excluída(s) com sucesso!`, CONSTANTS.ALERT_TYPE_SUCCESS);
-        // Recarrega dados na interface.
-        loadTransactions();
-        generateReports();
-        updateFilterCategories();
-        updateSystemStats();
-    } catch (error) {
-        console.error('Erro ao excluir transações selecionadas:', error);
-        showAlert('Erro ao excluir transações selecionadas: ' + error.message, CONSTANTS.ALERT_TYPE_ERROR);
-    }
+    // MELHORIA: Usa modal de confirmação customizado
+    showConfirmationModal('Confirmar Exclusão em Massa', `Tem certeza que deseja excluir ${selectedCheckboxes.length} transação(ões) selecionada(s)?`, async (confirmed) => {
+        if (confirmed) {
+            const idsToDelete = Array.from(selectedCheckboxes).map(cb => parseFloat(cb.dataset.id));
+            try {
+                await db.transactions.bulkDelete(idsToDelete);
+                showAlert(`${selectedCheckboxes.length} transação(ões) excluída(s) com sucesso!`, CONSTANTS.ALERT_TYPE_SUCCESS);
+                // Recarrega dados na interface.
+                loadTransactions();
+                generateReports();
+                updateFilterCategories();
+                updateSystemStats();
+            } catch (error) {
+                console.error('Erro ao excluir transações selecionadas:', error);
+                showAlert('Erro ao excluir transações selecionadas: ' + error.message, CONSTANTS.ALERT_TYPE_ERROR);
+            }
+        }
+    });
 }
 
-// Abre o modal para edição em massa do meio de pagamento.
+// Abre o modal para edição em massa do meio de pagamento usando classes CSS.
 function openEditMeioModal() {
     const { editMeioModal, selectedCountMeioModalSpan } = appState.domElements;
     const checkboxes = document.querySelectorAll('.transaction-checkbox:checked');
@@ -2219,7 +2401,7 @@ function openEditMeioModal() {
         showAlert('Selecione ao menos uma transação para modificar o meio de pagamento.', CONSTANTS.ALERT_TYPE_ERROR);
         return;
     }
-    if (editMeioModal) editMeioModal.style.display = 'flex';
+    if (editMeioModal) editMeioModal.classList.add('is-active'); // Adiciona a classe 'is-active'
     if (selectedCountMeioModalSpan) selectedCountMeioModalSpan.textContent = checkboxes.length;
 }
 
@@ -2240,7 +2422,7 @@ async function applyBulkMeioChange() {
             t.meio = newMeio;
             changedCount++;
         });
-        if (editMeioModal) editMeioModal.style.display = 'none';
+        if (editMeioModal) editMeioModal.classList.remove('is-active'); // Remove a classe 'is-active'
         showAlert(`${changedCount} transação(ões) modificada(s) com sucesso para ${formatMeio(newMeio)}!`, CONSTANTS.ALERT_TYPE_SUCCESS);
         // Recarrega dados na interface.
         loadTransactions();
@@ -2265,9 +2447,9 @@ async function getFilteredTransactions() {
         const categoria = filterCategoriaSelect ? filterCategoriaSelect.value : null;
         const searchTerm = searchBoxInput ? searchBoxInput.value?.toLowerCase() : null;
 
-        let filtered = [];
+        let filtered;
 
-        // Aplica filtros de data.
+        // Aplica filtros de data (lógica já robusta conforme análise).
         if (dataInicio && dataFim) {
             filtered = await query.where('data').between(dataInicio, dataFim, true, true).toArray();
         } else if (dataInicio) {
@@ -2324,31 +2506,37 @@ async function getFilteredTransactions() {
     }
 }
 
+// NOVA FUNÇÃO AUXILIAR: Calcula totais de receitas, despesas e saldo.
+function calculateStats(transactions) {
+    const totalReceitas = transactions
+        .filter(t => t.tipo === CONSTANTS.TRANSACTION_TYPE_INCOME)
+        .reduce((sum, t) => sum + t.valor, 0);
+    const totalDespesas = transactions
+        .filter(t => t.tipo === CONSTANTS.TRANSACTION_TYPE_EXPENSE)
+        .reduce((sum, t) => sum + t.valor, 0);
+    const saldo = totalReceitas - totalDespesas;
+    return { totalReceitas, totalDespesas, saldo };
+}
+
 // Atualiza as estatísticas de transações (receitas, despesas, saldo) na interface.
 function updateTransactionStats(filteredTransactions) {
     try {
         const { transactionStatsContainer } = appState.domElements;
-        const totalReceitas = filteredTransactions
-            .filter(t => t.tipo === CONSTANTS.TRANSACTION_TYPE_INCOME)
-            .reduce((sum, t) => sum + t.valor, 0);
-        const totalDespesas = filteredTransactions
-            .filter(t => t.tipo === CONSTANTS.TRANSACTION_TYPE_EXPENSE)
-            .reduce((sum, t) => sum + t.valor, 0);
-        const saldo = totalReceitas - totalDespesas;
+        const stats = calculateStats(filteredTransactions); // Usando função auxiliar
         const totalTransacoes = filteredTransactions.length;
 
         if (transactionStatsContainer) {
             transactionStatsContainer.innerHTML = `
                 <div class="stat-card">
-                    <div class="stat-value positive">R\$ ${totalReceitas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                    <div class="stat-value positive">R\$ ${stats.totalReceitas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
                     <div class="stat-label">Total Receitas</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value negative">R\$ ${totalDespesas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                    <div class="stat-value negative">R\$ ${stats.totalDespesas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
                     <div class="stat-label">Total Despesas</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value ${saldo >= 0 ? 'positive' : 'negative'}">R\$ ${saldo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                    <div class="stat-value ${stats.saldo >= 0 ? 'positive' : 'negative'}">R\$ ${stats.saldo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
                     <div class="stat-label">Saldo</div>
                 </div>
                 <div class="stat-card">
@@ -2367,7 +2555,7 @@ async function updateFilterCategories() {
     try {
         const { filterCategoriaSelect } = appState.domElements;
         if (!filterCategoriaSelect) return;
-        filterCategoriaSelect.innerHTML = '<option value="">Todas</option>';
+        filterCategoriaSelect.innerHTML = '<option value="">Todos</option>';
 
         const allCategoriesSet = new Set();
         // Coleta todas as categorias únicas de receita e despesa.
@@ -2407,7 +2595,7 @@ async function clearFilters() {
         if (filterTipoSelect) filterTipoSelect.value = '';
         if (filterCategoriaSelect) filterCategoriaSelect.value = '';
         if (searchBoxInput) searchBoxInput.value = '';
-        
+
         await loadTransactions();
     } catch (error) {
         console.error('Erro ao limpar filtros:', error);
@@ -2457,7 +2645,7 @@ async function editTransaction(id) {
                 if (outraCategoriaInput) outraCategoriaInput.value = transaction.categoria;
             }
 
-            updateSubcategories(); // Atualiza as subcategorias com base na categoria
+            updateSubcategories(); // Atualiza as subcategories com base na categoria
             requestAnimationFrame(() => {
                 // Tenta selecionar a subcategoria existente.
                 if (isCategoriaPredefinida && appState.categoriesData[transaction.tipo] && appState.categoriesData[transaction.tipo][transaction.categoria] && appState.categoriesData[transaction.tipo][transaction.categoria].includes(transaction.subcategoria)) {
@@ -2483,7 +2671,7 @@ async function editTransaction(id) {
         if (paymentTypeSingle && paymentTypeInstallment && numInstallmentsInput && meioSelect) {
             // Dispara o evento 'change' no meioSelect para garantir que a interface de parcelamento apareça/esconda corretamente.
             meioSelect.dispatchEvent(new Event('change'));
-            
+
             // Apenas a PRIMEIRA parcela de uma série pode ser editada para alterar o parcelamento.
             if (transaction.isInstallment && transaction.installmentInfo && transaction.installmentInfo.current === 1) {
                 paymentTypeInstallment.checked = true;
@@ -2504,10 +2692,10 @@ async function editTransaction(id) {
             }
             toggleInstallmentFields();
         }
-        
+
         enforceMutualExclusivity();
 
-        showTab('cadastro');
+        showTab('panel-cadastro'); // MELHORIA: Usa o novo ID da seção
         showAlert('Transação carregada para edição!', CONSTANTS.ALERT_TYPE_SUCCESS);
     } catch (error) {
         console.error('Erro ao editar transação:', error);
@@ -2529,37 +2717,61 @@ async function deleteTransaction(id) {
 
         // Exclusão de série recorrente (apenas o modelo, não ocorrências geradas).
         if (transactionToDelete.isRecurring && !transactionToDelete.parentRecurringId) {
-            if (confirm('Esta transação é o modelo de uma série recorrente. Deseja excluir TODA a série (modelo e ocorrências geradas)?')) {
-                // Busca todas as ocorrências relacionadas e as adiciona para exclusão.
-                const relatedOccurrences = await db.transactions.where('parentRecurringId').equals(id).primaryKeys();
-                idsToDelete = idsToDelete.concat(relatedOccurrences);
-                idsToDelete.push(id); // Inclui o próprio modelo
-            } else {
-                confirmMessage = 'Tem certeza que deseja excluir APENAS esta ocorrência (o modelo), interrompendo a geração futura?';
-            }
+            confirmMessage = 'Esta transação é o modelo de uma série recorrente. Deseja excluir TODA a série (modelo e ocorrências geradas)?';
+            // MELHORIA: Usa modal de confirmação customizado
+            showConfirmationModal('Confirmar Exclusão de Série', confirmMessage, async (confirmed) => {
+                if (confirmed) {
+                    const relatedOccurrences = await db.transactions.where('parentRecurringId').equals(id).primaryKeys();
+                    idsToDelete = idsToDelete.concat(relatedOccurrences);
+                    idsToDelete.push(id); // Inclui o próprio modelo
+                    await db.transactions.bulkDelete(idsToDelete);
+                    showAlert(`${idsToDelete.length} transação(ões) excluída(s) com sucesso!`, CONSTANTS.ALERT_TYPE_SUCCESS);
+                    loadTransactions(); generateReports(); updateFilterCategories(); updateSystemStats();
+                } else {
+                    // Se o usuário não quiser excluir a série completa, oferece opção de excluir apenas a ocorrência (o modelo)
+                    showConfirmationModal('Confirmar Exclusão de Ocorrência', 'Tem certeza que deseja excluir APENAS esta ocorrência (o modelo), interrompendo a geração futura?', async (confirmedOnlyOne) => {
+                        if (confirmedOnlyOne) {
+                            await db.transactions.bulkDelete([id]);
+                            showAlert(`1 transação excluída com sucesso!`, CONSTANTS.ALERT_TYPE_SUCCESS);
+                            loadTransactions(); generateReports(); updateFilterCategories(); updateSystemStats();
+                        }
+                    });
+                }
+            });
         }
         // Exclusão de série parcelada (apenas a primeira parcela).
         else if (transactionToDelete.isInstallment && transactionToDelete.installmentInfo && transactionToDelete.installmentInfo.current === 1) {
-            if (confirm('Esta transação é a primeira parcela de uma série. Deseja excluir TODA a série (todas as parcelas desta compra)?')) {
-                // Busca todas as parcelas relacionadas pelo groupId.
-                const relatedInstallments = await db.transactions.where('groupId').equals(transactionToDelete.groupId).primaryKeys();
-                idsToDelete = relatedInstallments;
-            } else {
-                confirmMessage = 'Tem certeza que deseja excluir APENAS esta parcela?';
-            }
-        } else if (transactionToDelete.isInstallment || transactionToDelete.parentRecurringId) {
+            confirmMessage = 'Esta transação é a primeira parcela de uma série. Deseja excluir TODA a série (todas as parcelas desta compra)?';
+            // MELHORIA: Usa modal de confirmação customizado
+            showConfirmationModal('Confirmar Exclusão de Série Parcelada', confirmMessage, async (confirmed) => {
+                if (confirmed) {
+                    const relatedInstallments = await db.transactions.where('groupId').equals(transactionToDelete.groupId).primaryKeys();
+                    idsToDelete = relatedInstallments;
+                    await db.transactions.bulkDelete(idsToDelete);
+                    showAlert(`${idsToDelete.length} transação(ões) excluída(s) com sucesso!`, CONSTANTS.ALERT_TYPE_SUCCESS);
+                    loadTransactions(); generateReports(); updateFilterCategories(); updateSystemStats();
+                } else {
+                    // Se o usuário não quiser excluir a série completa, oferece opção de excluir apenas esta parcela
+                    showConfirmationModal('Confirmar Exclusão de Parcela', 'Tem certeza que deseja excluir APENAS esta parcela?', async (confirmedOnlyOne) => {
+                        if (confirmedOnlyOne) {
+                            await db.transactions.bulkDelete([id]);
+                            showAlert(`1 transação excluída com sucesso!`, CONSTANTS.ALERT_TYPE_SUCCESS);
+                            loadTransactions(); generateReports(); updateFilterCategories(); updateSystemStats();
+                        }
+                    });
+                }
+            });
+        } else {
             // Confirmação padrão para ocorrências geradas ou parcelas individuais.
             confirmMessage = 'Tem certeza que deseja excluir esta transação individual?';
-        }
-
-        if (confirm(confirmMessage)) {
-            await db.transactions.bulkDelete(idsToDelete);
-            showAlert(`${idsToDelete.length} transação(ões) excluída(s) com sucesso!`, CONSTANTS.ALERT_TYPE_SUCCESS);
-            // Recarrega dados na interface.
-            loadTransactions();
-            generateReports();
-            updateFilterCategories();
-            updateSystemStats();
+            // MELHORIA: Usa modal de confirmação customizado
+            showConfirmationModal('Confirmar Exclusão', confirmMessage, async (confirmed) => {
+                if (confirmed) {
+                    await db.transactions.bulkDelete([id]);
+                    showAlert(`1 transação excluída com sucesso!`, CONSTANTS.ALERT_TYPE_SUCCESS);
+                    loadTransactions(); generateReports(); updateFilterCategories(); updateSystemStats();
+                }
+            });
         }
     } catch (error) {
         console.error('Erro ao excluir transação:', error);
@@ -2633,31 +2845,25 @@ async function generateReports() {
     }
 }
 
-// Atualiza o painel de estatísticas dos relatórios.
+// Atualiza o painel de estatísticas dos relatórios usando a função auxiliar calculateStats.
 function updateReportStats(reportTransactions) {
     try {
         const { reportStatsContainer } = appState.domElements;
-        const totalReceitas = reportTransactions
-            .filter(t => t.tipo === CONSTANTS.TRANSACTION_TYPE_INCOME)
-            .reduce((sum, t) => sum + t.valor, 0);
-        const totalDespesas = reportTransactions
-            .filter(t => t.tipo === CONSTANTS.TRANSACTION_TYPE_EXPENSE)
-            .reduce((sum, t) => sum + t.valor, 0);
-        const saldo = totalReceitas - totalDespesas;
+        const stats = calculateStats(reportTransactions); // Usando função auxiliar
         const mediaGastoMensal = calculateMediaGastoMensal(reportTransactions);
 
         if (reportStatsContainer) {
             reportStatsContainer.innerHTML = `
                 <div class="stat-card">
-                    <div class="stat-value positive">R\$ ${totalReceitas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                    <div class="stat-value positive">R\$ ${stats.totalReceitas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
                     <div class="stat-label">Total Receitas</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value negative">R\$ ${totalDespesas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                    <div class="stat-value negative">R\$ ${stats.totalDespesas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
                     <div class="stat-label">Total Despesas</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value ${saldo >= 0 ? 'positive' : 'negative'}">R\$ ${saldo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                    <div class="stat-value ${stats.saldo >= 0 ? 'positive' : 'negative'}">R\$ ${stats.saldo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
                     <div class="stat-label">Saldo Líquido</div>
                 </div>
                 <div class="stat-card">
@@ -2679,7 +2885,8 @@ function calculateMediaGastoMensal(reportTransactions) {
         const meses = [...new Set(despesas.map(t => t.data.substring(0, 7)))];
         const totalDespesas = despesas.reduce((sum, t) => sum + t.valor, 0);
         return meses.length > 0 ? totalDespesas / meses.length : 0;
-    } catch (error) {
+    }
+    catch (error) {
         console.error('Erro ao calcular média mensal:', error);
         return 0;
     }
@@ -2688,25 +2895,24 @@ function calculateMediaGastoMensal(reportTransactions) {
 // Cria um gráfico de pizza para Receitas vs Despesas.
 function createReceitasDespesasChart(reportTransactions, targetDivId) {
     try {
-        const receitas = reportTransactions.filter(t => t.tipo === CONSTANTS.TRANSACTION_TYPE_INCOME).reduce((sum, t) => sum + t.valor, 0);
-        const despesas = reportTransactions.filter(t => t.tipo === CONSTANTS.TRANSACTION_TYPE_EXPENSE).reduce((sum, t) => sum + t.valor, 0);
+        const stats = calculateStats(reportTransactions); // Usando função auxiliar
         const chartDiv = document.getElementById(targetDivId);
         if (!chartDiv) return;
 
-        if (receitas === 0 && despesas === 0) {
+        if (stats.totalReceitas === 0 && stats.totalDespesas === 0) {
             chartDiv.innerHTML = '<p style="text-align: center; padding: 50px;">Nenhum dado disponível</p>';
             return;
         }
         const trace = {
             labels: ['Receitas', 'Despesas'],
-            values: [receitas, despesas],
+            values: [stats.totalReceitas, stats.totalDespesas],
             type: 'pie',
             hole: 0.4,
             marker: {
                 colors: ['#28a745', '#B00020']
             },
             textinfo: 'label+percent+value',
-            texttemplate: '<!-- AQUI -->%{label}<br>%{percent}<br>R\$ %{value:,.2f}'
+            texttemplate: '%{label}<br>%{percent}<br>R\$ %{value:,.2f}'
         };
         const layout = {
             title: 'Receitas vs Despesas',
@@ -2749,7 +2955,7 @@ function createDespesasCategoriaChart(reportTransactions, targetDivId) {
         if (!chartDiv) return;
 
         if (categorias.length === 0) {
-            chartDiv.innerHTML = '<p style="text-align: center; padding: 50px;">Nenhuma despesa encontrada</p>';
+            chartDiv.innerHTML = '<p style="text-align: center; padding: 50px;">Nenhum dado disponível</p>';
             return;
         }
         const trace = {
@@ -2802,7 +3008,7 @@ function createDespesasCategoriaBarChart(reportTransactions, targetDivId) {
         if (!chartDiv) return;
 
         if (sortedCategorias.length === 0) {
-            chartDiv.innerHTML = '<p style="text-align: center; padding: 50px;">Nenhuma despesa encontrada</p>';
+            chartDiv.innerHTML = '<p style="text-align: center; padding: 50px;">Nenhuma dado disponível</p>';
             return;
         }
         const trace = {
@@ -2810,7 +3016,7 @@ function createDespesasCategoriaBarChart(reportTransactions, targetDivId) {
             y: sortedValores,
             type: 'bar',
             marker: {
-                color: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9']
+                colors: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9']
             }
         };
         const layout = {
@@ -2925,7 +3131,7 @@ function createTransacoesMeioChart(reportTransactions, targetDivId) {
             y: sortedValores,
             type: 'bar',
             marker: {
-                color: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9']
+                colors: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9']
             }
         };
         const layout = {
@@ -3093,7 +3299,7 @@ async function exportData() {
             categoriesData: appState.categoriesData,
             lastImportedTransactionIds: currentSettings ? currentSettings.lastImportedTransactionIds : [],
             exportDate: new Date().toISOString(),
-            version: '47_indexeddb_full_recurring_installment_refactored' // Atualiza a versão para refletir a nova estrutura
+            version: '47_indexeddb_full_recurring_installment_refactored_document_classification_fixed_v2' // Atualiza a versão
         };
         const dataStr = JSON.stringify(dataToExport, null, 2);
         const dataBlob = new Blob([dataStr], { type: 'application/json' });
@@ -3123,31 +3329,34 @@ async function importData() {
                     const importedData = JSON.parse(e.target.result);
                     // Valida a estrutura dos dados importados.
                     if (importedData.transactions && Array.isArray(importedData.transactions)) {
-                        if (confirm(`Isso irá substituir TODOS os dados existentes por ${importedData.transactions.length} transações. Continuar?`)) {
-                            await db.transactions.clear();
-                            await db.appSettings.clear();
+                        // MELHORIA: Usa modal de confirmação customizado
+                        showConfirmationModal('Confirmar Importação', `Isso irá substituir TODOS os dados existentes por ${importedData.transactions.length} transações. Continuar?`, async (confirmed) => {
+                            if (confirmed) {
+                                await db.transactions.clear();
+                                await db.appSettings.clear();
 
-                            await db.transactions.bulkAdd(importedData.transactions);
+                                await db.transactions.bulkAdd(importedData.transactions);
 
-                            // Atualiza appState com os dados importados
-                            appState.categoriesData = importedData.categoriesData || DEFAULT_CATEGORIES_DATA;
-                            appState.lastImportedTransactionIds = importedData.lastImportedTransactionIds || [];
+                                // Atualiza appState com os dados importados
+                                appState.categoriesData = importedData.categoriesData || DEFAULT_CATEGORIES_DATA;
+                                appState.lastImportedTransactionIds = importedData.lastImportedTransactionIds || [];
 
-                            await db.appSettings.put({
-                                id: 'generalSettings',
-                                categoriesData: appState.categoriesData,
-                                lastImportedTransactionIds: appState.lastImportedTransactionIds,
-                                lastBackup: importedData.exportDate,
-                            });
+                                await db.appSettings.put({
+                                    id: 'generalSettings',
+                                    categoriesData: appState.categoriesData,
+                                    lastImportedTransactionIds: appState.lastImportedTransactionIds,
+                                    lastBackup: importedData.exportDate,
+                                });
 
-                            showAlert('Dados importados com sucesso!', CONSTANTS.ALERT_TYPE_SUCCESS);
-                            // Recarrega todos os dados na interface.
-                            loadTransactions();
-                            generateReports();
-                            updateFilterCategories();
-                            updateSystemStats();
-                            loadCategoriesManagementTable();
-                        }
+                                showAlert('Dados importados com sucesso!', CONSTANTS.ALERT_TYPE_SUCCESS);
+                                // Recarrega todos os dados na interface.
+                                loadTransactions();
+                                generateReports();
+                                updateFilterCategories();
+                                updateSystemStats();
+                                loadCategoriesManagementTable();
+                            }
+                        });
                     } else {
                         showAlert('Arquivo de importação inválido! Formato esperado: JSON com array de "transactions".', CONSTANTS.ALERT_TYPE_ERROR);
                     }
@@ -3167,30 +3376,35 @@ async function importData() {
 // Limpa todos os dados da aplicação (transações e configurações).
 async function clearAllData() {
     try {
-        if (confirm('ATENÇÃO: Isso irá apagar TODOS os dados do sistema. Esta ação não pode ser desfeita. Tem certeza?')) {
-            if (confirm('Última confirmação: Todos os dados serão perdidos permanentemente. Continuar?')) {
-                await db.transactions.clear();
-                await db.appSettings.clear();
+        // MELHORIA: Usa modal de confirmação customizado
+        showConfirmationModal('ATENÇÃO: Apagar Todos os Dados!', 'Isso irá apagar TODOS os dados do sistema. Esta ação não pode ser desfeita. Tem certeza?', async (confirmedFirst) => {
+            if (confirmedFirst) {
+                showConfirmationModal('Confirmação Final', 'Última confirmação: Todos os dados serão perdidos permanentemente. Continuar?', async (confirmedFinal) => {
+                    if (confirmedFinal) {
+                        await db.transactions.clear();
+                        await db.appSettings.clear();
 
-                // Reseta appState para os valores padrão
-                appState.categoriesData = DEFAULT_CATEGORIES_DATA;
-                appState.lastImportedTransactionIds = [];
+                        // Reseta appState para os valores padrão
+                        appState.categoriesData = DEFAULT_CATEGORIES_DATA;
+                        appState.lastImportedTransactionIds = [];
 
-                await db.appSettings.put({
-                    id: 'generalSettings',
-                    categoriesData: appState.categoriesData,
-                    lastImportedTransactionIds: appState.lastImportedTransactionIds,
+                        await db.appSettings.put({
+                            id: 'generalSettings',
+                            categoriesData: appState.categoriesData,
+                            lastImportedTransactionIds: appState.lastImportedTransactionIds,
+                        });
+
+                        showAlert('Todos os dados foram removidos!', CONSTANTS.ALERT_TYPE_SUCCESS);
+                        // Recarrega todos os dados na interface para um estado limpo.
+                        loadTransactions();
+                        generateReports();
+                        updateFilterCategories();
+                        updateSystemStats();
+                        loadCategoriesManagementTable();
+                    }
                 });
-
-                showAlert('Todos os dados foram removidos!', CONSTANTS.ALERT_TYPE_SUCCESS);
-                // Recarrega todos os dados na interface para um estado limpo.
-                loadTransactions();
-                generateReports();
-                updateFilterCategories();
-                updateSystemStats();
-                loadCategoriesManagementTable();
             }
-        }
+        });
     } catch (error) {
         console.error('Erro ao limpar dados:', error);
         showAlert('Erro ao limpar dados: ' + error.message, CONSTANTS.ALERT_TYPE_ERROR);
@@ -3240,7 +3454,7 @@ function showAlert(message, type) {
         }
         const alertDiv = document.createElement('div');
         alertDiv.className = `alert alert-${type}`;
-        alertDiv.textContent = message; // REVISÃO: Usando textContent para evitar XSS em alertas
+        alertDiv.textContent = message; // Usando textContent para evitar XSS em alertas
         alertContainer.appendChild(alertDiv);
         setTimeout(() => {
             if (alertDiv.parentNode) {
@@ -3253,7 +3467,7 @@ function showAlert(message, type) {
     }
 }
 
-// Exibe um modal com detalhes de transações.
+// Exibe um modal com detalhes de transações usando classes CSS.
 async function showTransactionDetailsModal(title, transactionsToShow) {
     const { transactionDetailsModal, transactionDetailsTitle, transactionDetailsBody } = appState.domElements;
 
@@ -3262,17 +3476,17 @@ async function showTransactionDetailsModal(title, transactionsToShow) {
         return;
     }
 
-    transactionDetailsTitle.textContent = title; // REVISÃO: Usando textContent
+    transactionDetailsTitle.textContent = title; // Usando textContent
     transactionDetailsBody.innerHTML = '';
 
     if (transactionsToShow.length === 0) {
         const row = transactionDetailsBody.insertRow();
         const cell = row.insertCell();
         cell.colSpan = 7;
-        cell.textContent = 'Nenhuma transação encontrada para esta categoria.'; // REVISÃO: Usando textContent
+        cell.textContent = 'Nenhuma transação encontrada para esta categoria.'; // Usando textContent
         cell.style.textAlign = 'center';
     } else {
-        // REVISÃO: Refatorado para usar criação programática de elementos e textContent
+        // Refatorado para usar criação programática de elementos e textContent
         transactionsToShow.forEach(transaction => {
             let description = transaction.descricao;
             if (transaction.isInstallment && transaction.installmentInfo) {
@@ -3314,7 +3528,71 @@ async function showTransactionDetailsModal(title, transactionsToShow) {
         });
     }
 
-    transactionDetailsModal.style.display = 'flex';
+    transactionDetailsModal.classList.add('is-active'); // Adiciona a classe 'is-active'
+}
+
+// NOVO: Função para exibir o modal de confirmação customizado
+/**
+ * Exibe um modal de confirmação customizado.
+ * @param {string} title - Título do modal.
+ * @param {string} message - Mensagem a ser exibida.
+ * @param {function(boolean): void} callback - Função a ser executada ao confirmar ou cancelar. Recebe 'true' para confirmar, 'false' para cancelar.
+ */
+function showConfirmationModal(title, message, callback) {
+    const { confirmationModal, confirmationModalTitle, confirmationModalMessage, confirmActionBtn, cancelConfirmationBtn, closeConfirmationModalBtn } = appState.domElements;
+    if (!confirmationModal) {
+        console.error('Modal de confirmação não encontrado.');
+        // Executa o callback com 'false' se o modal não existe para evitar travamento
+        if (callback && typeof callback === 'function') callback(false);
+        return;
+    }
+
+    confirmationModalTitle.textContent = title;
+    confirmationModalMessage.textContent = message;
+
+    // Remove ouvintes anteriores para evitar múltiplas execuções
+    // Armazena o callback temporariamente no botão de confirmação
+    confirmActionBtn.onclick = null; // Limpa qualquer listener inline
+    confirmActionBtn._callback = null; // Limpa a referência anterior do callback
+
+    // Remove listeners antigos para evitar múltiplas execuções ao reabrir o modal
+    // Removendo listeners com a função nomeada para que possam ser removidos corretamente
+    const oldConfirmHandler = confirmActionBtn._confirmHandler;
+    const oldCancelHandler = cancelConfirmationBtn._cancelHandler;
+    const oldCloseHandler = closeConfirmationModalBtn._closeHandler;
+
+    if (oldConfirmHandler) confirmActionBtn.removeEventListener('click', oldConfirmHandler);
+    if (oldCancelHandler) cancelConfirmationBtn.removeEventListener('click', oldCancelHandler);
+    if (oldCloseHandler) closeConfirmationModalBtn.removeEventListener('click', oldCloseHandler);
+
+    const confirmHandler = () => {
+        confirmationModal.classList.remove('is-active');
+        if (callback && typeof callback === 'function') {
+            callback(true); // Indica que a ação foi confirmada
+        }
+    };
+
+    const cancelHandler = () => {
+        confirmationModal.classList.remove('is-active');
+        if (callback && typeof callback === 'function') {
+            callback(false); // Indica que a ação foi cancelada
+        }
+    };
+
+    // Adiciona ouvintes e armazena suas referências para remoção futura
+    confirmActionBtn.addEventListener('click', confirmHandler, { once: true });
+    cancelConfirmationBtn.addEventListener('click', cancelHandler, { once: true });
+    closeConfirmationModalBtn.addEventListener('click', cancelHandler, { once: true }); // Fecha via 'x' no modal
+
+    confirmActionBtn._confirmHandler = confirmHandler;
+    cancelConfirmationBtn._cancelHandler = cancelHandler;
+    closeConfirmationModalBtn._closeHandler = cancelHandler;
+
+    // Armazena o callback para ser acessível se o modal for fechado sem clicar (ex: via close button)
+    confirmActionBtn._callback = callback;
+
+
+    confirmationModal.classList.add('is-active');
 }
 
 // Simula um backup automático (apenas atualiza um timestamp, não exporta de fato).
@@ -3427,7 +3705,7 @@ function addMonths(date, months) {
     const d = new Date(date);
     const originalDay = d.getDate();
     d.setMonth(d.getMonth() + months);
-    // Se o dia original era o último dia do mês, e o novo mês tem menos dias, ajusta para o último dia do novo mês
+    // Se o dia original era o último dia do mês, e o novo mês tem menos dias, ajusta para o último do mês correto
     if (d.getDate() !== originalDay && originalDay > d.getDate()) {
         d.setDate(0); // Último dia do mês anterior, para então setar para o último do mês correto
     }
@@ -3489,7 +3767,7 @@ async function checkAndGenerateRecurringTransactions() {
             // Atualiza o modelo original com a próxima data de ocorrência calculada
             await db.transactions.put(model);
         }
-        
+
         // Adiciona todas as transações geradas ao banco de dados em uma única operação bulk
         if (transactionsToBulkAdd.length > 0) {
             await db.transactions.bulkAdd(transactionsToBulkAdd);
@@ -3504,4 +3782,3 @@ async function checkAndGenerateRecurringTransactions() {
         showAlert('Erro ao gerar transações recorrentes: ' + error.message, CONSTANTS.ALERT_TYPE_ERROR);
     }
 }
-                    
