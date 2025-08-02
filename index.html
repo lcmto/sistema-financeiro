@@ -37,16 +37,15 @@
 </head>
 <body>
     <header class="header">
-        <h1>💰 Sistema de Controle Financeiro Doméstico</h1>
-        <p>Gerencie suas finanças de forma inteligente e organizada</p>
+        <h1>Sistema de controle financeiro doméstico</h1>
     </header>
 
     <!-- Navegação por abas para alternar entre seções da aplicação -->
     <nav class="nav-tabs" role="tablist">
         <button class="nav-tab active" data-tab="panel-cadastro" id="tab-cadastro" role="tab" aria-selected="true" aria-controls="panel-cadastro">📝 Cadastro</button>
-        <button class="nav-tab" data-tab="panel-importacao" id="tab-importacao" role="tab" aria-selected="false" aria-controls="panel-importacao" tabindex="-1">📤 Importação</button>
+        <button class="nav-tab" data-tab="panel-importacao" id="tab-importacao" role="tab" aria-selected="false" aria-controls="panel-importacao" tabindex="-1">   Importação</button>
         <button class="nav-tab" data-tab="panel-transacoes" id="tab-transacoes" role="tab" aria-selected="false" aria-controls="panel-transacoes" tabindex="-1">🔄 Transações</button>
-        <button class="nav-tab" data-tab="panel-relatorios" id="tab-relatorios" role="tab" aria-selected="false" aria-controls="panel-relatorios" tabindex="-1">📊 Relatórios</button>
+        <button class="nav-tab" data-tab="panel-relatorios" id="tab-relatorios" role="tab" aria-selected="false" aria-controls="panel-relatorios" tabindex="-1">   Relatórios</button>
         <button class="nav-tab" data-tab="panel-configuracoes" id="tab-configuracoes" role="tab" aria-selected="false" aria-controls="panel-configuracoes" tabindex="-1">⚙️ Configurações</button>
     </nav>
 
@@ -104,7 +103,8 @@
 
                     <div class="form-group">
                         <label for="valor">Valor (R\$) *</label>
-                        <input type="number" id="valor" name="valor" step="0.01" min="0" required placeholder="0,00">
+                        <!-- Alterado para type="text" para melhor manipulação de formato monetário brasileiro -->
+                        <input type="text" id="valor" name="valor" inputmode="numeric" pattern="[0-9.,]*" required placeholder="0,00">
                         <div class="error-message" id="valor-error"></div>
                     </div>
 
@@ -204,7 +204,7 @@
                 <!-- FIM DO NOVO BLOCO -->
 
                 <div class="import-area" id="importArea">
-                    <h3>📤 Arraste e solte seus arquivos aqui</h3>
+                    <h3>   Arraste e solte seus arquivos aqui</h3>
                     <p>ou</p>
                     <label for="fileInput" class="file-label">
                         📂 Selecionar Arquivos
@@ -268,7 +268,7 @@
                 <div class="table-header">
                     <div class="table-title">📋 Lista de Transações</div>
                     <div class="table-actions">
-                        <input type="text" class="search-box" id="searchBox" placeholder="🔍 Buscar transações...">
+                        <input type="text" class="search-box" id="searchBox" placeholder="   Buscar transações...">
                         <button class="btn btn-secondary" id="selectAllBtn">☑️ Selecionar Tudo</button>
                         <!-- Botões de ação em massa - visibilidade controlada pelo JS -->
                         <button class="btn btn-info" id="editSelectedMeioBtn" style="display: none;">✏️ Modificar Meio (<span id="selectedCountMeio">0</span>)</button>

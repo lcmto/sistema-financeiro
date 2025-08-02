@@ -410,6 +410,7 @@ function cacheDomElements() {
     appState.domElements.closeEditMeioModalBtn = document.getElementById('closeEditMeioModalBtn'); // Adicionado
     appState.domElements.cancelEditMeioBtn = document.getElementById('cancelEditMeioBtn'); // Adicionado
     appState.domElements.applyEditMeioBtn = document.getElementById('applyEditMeioBtn'); // Adicionado
+
     appState.domElements.reportDataInicioInput = document.getElementById('reportDataInicio');
     appState.domElements.reportDataFimInput = document.getElementById('reportDataFim');
     appState.domElements.mainChartArea = document.getElementById('main-chart-area');
@@ -524,6 +525,53 @@ function setupTransactionFormListeners() {
             }
         });
     }
+
+    // MELHORIA: Tratamento de input para formato monetário brasileiro
+    if (valorInput) {
+        valorInput.addEventListener('blur', (e) => {
+            // Converte a string de input para float, independentemente do formato (BR ou US)
+            const numericValue = parseBrazilianCurrencyStringToFloat(e.target.value);
+            // Formata o valor numérico para o formato de exibição brasileiro
+            e.target.value = formatFloatToBrazilianCurrencyString(numericValue);
+            clearValidationError(valorInput);
+        });
+
+        // Este listener agora faz uma limpeza básica, sem tentar interpretar o formato.
+        // A interpretação complexa é feita no blur e na função de parsing.
+        valorInput.addEventListener('input', (e) => {
+            let value = e.target.value;
+            // 1. Permite apenas dígitos, vírgulas e pontos
+            value = value.replace(/[^\d,.]/g, '');
+
+            // 2. Remove múltiplos zeros à esquerda, a menos que seja "0," ou "0."
+            if (value.length > 1 && value[0] === '0' && value[1] !== ',' && value[1] !== '.') {
+                value = value.substring(1);
+            }
+            
+            // 3. Garante que haja apenas um separador decimal (vírgula ou ponto)
+            //    Se existirem múltiplos, mantém apenas o último para fins de input temporário
+            const lastCommaIndex = value.lastIndexOf(',');
+            const lastDotIndex = value.lastIndexOf('.');
+
+            // Se ambos os separadores existem e a vírgula é o último, remove os pontos.
+            // Se o ponto é o último, remove as vírgulas.
+            if (lastCommaIndex !== -1 && lastDotIndex !== -1) {
+                if (lastCommaIndex > lastDotIndex) { // Provável formato BR (xxx.yyy,zz)
+                    value = value.replace(/\.(?=[^,]*$)/g, ''); // Remove pontos de milhar antes da vírgula
+                } else { // Provável formato US (xxx,yyy.zz)
+                    value = value.replace(/,(?=[^.]*$)/g, ''); // Remove vírgulas de milhar antes do ponto
+                }
+            } else if (value.split('.').length > 2) { // Múltiplos pontos sem vírgula, tratar como milhares
+                value = value.replace(/\.(?=[^.]*\.)/g, ''); // Remove pontos intermediários, mantendo o último
+            } else if (value.split(',').length > 2) { // Múltiplas vírgulas sem ponto, manter apenas a última
+                value = value.replace(/,(?=[^,]*.)/g, ''); // Remove vírgulas intermediárias, mantendo a última
+            }
+            
+            e.target.value = value;
+            // A validação de erro será feita no blur ou submit.
+        });
+    }
+
 
     if (tipoSelect) tipoSelect.addEventListener('change', updateCategories);
     if (tipoSelect) tipoSelect.addEventListener('change', autoFillFromDescription);
@@ -722,7 +770,6 @@ function updateCategories() {
     try {
         console.log('Atualizando categorias...');
         const { tipoSelect, categoriaSelect, subcategoriaSelect, outraCategoriaInput, outraSubcategoriaInput } = appState.domElements;
-
         if (!categoriaSelect || !subcategoriaSelect || !outraCategoriaInput || !outraSubcategoriaInput || !tipoSelect) {
             console.warn("Elementos de categoria/subcategoria não encontrados. Pulando atualização.");
             return;
@@ -1044,7 +1091,8 @@ function getTransactionDataFromForm(formElements) {
         tipo: formElements.tipo.value,
         categoriaFinal: formElements.outraCategoria.value.trim() || formElements.categoria.value,
         subcategoriaFinal: formElements.outraSubcategoria.value.trim() || formElements.subcategoria.value || '',
-        valorOriginal: parseFloat(formElements.valor.value),
+        // Usa a nova função robusta para converter o valor
+        valorOriginal: parseBrazilianCurrencyStringToFloat(formElements.valor.value),
         meio: formElements.meio.value,
         descricaoOriginal: formElements.descricao.value || '',
         isRecurringChecked: formElements.isRecurringCheckbox?.checked,
@@ -1067,7 +1115,7 @@ async function updateCategoriesIfNeeded(tipo, categoriaFinal, subcategoriaFinal)
             categoriesDataChanged = true;
         }
     }
-    if (categoriaFinal && subcategoriaFinal && !appState.categoriesData[tipo][categoriaFinal].includes(subcategoriaFinal)) {
+    if (categoriaFinal && subcategoriaFinal && !appState.categoriesData[tipo][categoriaFinal].includes(subcategoryName)) {
         appState.categoriesData[tipo][categoriaFinal].push(subcategoriaFinal);
         categoriesDataChanged = true;
     }
@@ -1259,10 +1307,8 @@ function validateForm(elements) {
     if (!elements.data || !elements.data.value) {
         errors.data = 'Data é obrigatória.';
         dataInput?.setAttribute('aria-invalid', 'true');
-    } else if (new Date(elements.data.value + 'T00:00:00') > new Date()) {
-        errors.data = 'Data não pode ser futura.';
-        dataInput?.setAttribute('aria-invalid', 'true');
     }
+    // NOTA: A validação de "data não pode ser futura" foi removida conforme sua solicitação.
 
     // Validação do Tipo de Transação.
     if (!elements.tipo || !elements.tipo.value) {
@@ -1289,7 +1335,8 @@ function validateForm(elements) {
     }
 
     // Validação do Valor.
-    const valor = parseFloat(elements.valor?.value);
+    // Usa a nova função robusta para converter o valor para validação
+    const valor = parseBrazilianCurrencyStringToFloat(elements.valor?.value);
     if (isNaN(valor) || valor <= 0) {
         errors.valor = 'Valor deve ser um número maior que zero.';
         valorInput?.setAttribute('aria-invalid', 'true');
@@ -1379,11 +1426,12 @@ function clearForm() {
         const form = appState.domElements.transactionForm;
         const { dataInput, isRecurringCheckbox, recurringFrequencySelect, meioSelect,
                 paymentTypeSingle, paymentTypeInstallment, numInstallmentsInput,
-                outraCategoriaInput, outraSubcategoriaInput } = appState.domElements;
+                outraCategoriaInput, outraSubcategoriaInput, valorInput } = appState.domElements;
 
         if (form) {
             form.reset();
             if (dataInput) dataInput.value = new Date().toISOString().split('T')[0];
+            if (valorInput) valorInput.value = ''; // Limpa o valor para garantir formatação inicial
 
             updateCategories();
             updateSubcategories();
@@ -1422,6 +1470,75 @@ function clearForm() {
     }
 }
 
+/**
+ * Converte uma string no formato monetário (potencialmente em formato brasileiro ou misto) para um número float.
+ * Trata:
+ * - "1.234,56" (Padrão brasileiro) -> 1234.56
+ * - "1,234.56" (Padrão americano) -> 1234.56
+ * - "1234,56" -> 1234.56
+ * - "1234.56" -> 1234.56
+ * - "9.008,44" -> 9008.44
+ *
+ * @param {string} valueStr A string do valor a ser convertido.
+ * @returns {number} O valor numérico (float) ou NaN se a conversão falhar.
+ */
+function parseBrazilianCurrencyStringToFloat(valueStr) {
+    if (typeof valueStr !== 'string') {
+        valueStr = String(valueStr);
+    }
+
+    // 1. Remove qualquer caractere que não seja dígito, vírgula ou ponto
+    let cleanedValue = valueStr.replace(/[^\d,.]/g, '');
+
+    // 2. Determine decimal and thousands separators based on presence and position
+    const lastCommaIndex = cleanedValue.lastIndexOf(',');
+    const lastDotIndex = cleanedValue.lastIndexOf('.');
+
+    let floatValue;
+
+    // Caso 1: Ambos vírgula e ponto estão presentes.
+    if (lastCommaIndex !== -1 && lastDotIndex !== -1) {
+        if (lastCommaIndex > lastDotIndex) { // Formato brasileiro: vírgula é decimal, ponto é milhar
+            // Remove todos os pontos, então substitui a vírgula por ponto
+            cleanedValue = cleanedValue.replace(/\./g, '').replace(',', '.');
+            floatValue = parseFloat(cleanedValue);
+        } else { // Formato americano: ponto é decimal, vírgula é milhar
+            // Remove todas as vírgulas, então mantém o ponto
+            cleanedValue = cleanedValue.replace(/,/g, '');
+            floatValue = parseFloat(cleanedValue);
+        }
+    }
+    // Caso 2: Apenas vírgula está presente (implica decimal brasileiro)
+    else if (lastCommaIndex !== -1) {
+        cleanedValue = cleanedValue.replace(',', '.');
+        floatValue = parseFloat(cleanedValue);
+    }
+    // Caso 3: Apenas ponto está presente (implica decimal americano, ou número simples com ponto)
+    else if (lastDotIndex !== -1) {
+        floatValue = parseFloat(cleanedValue);
+    }
+    // Caso 4: Nenhuma vírgula ou ponto (número inteiro)
+    else {
+        floatValue = parseInt(cleanedValue);
+    }
+
+    return floatValue;
+}
+
+
+/**
+ * Formata um número float para uma string no formato monetário brasileiro (ex: "1.234,56").
+ * @param {number} value O número float a ser formatado.
+ * @returns {string} A string formatada no padrão monetário brasileiro.
+ */
+function formatFloatToBrazilianCurrencyString(value) {
+    if (isNaN(value)) {
+        return '';
+    }
+    // Usa toLocaleString com as opções de pt-BR para garantir o formato correto.
+    return value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 
 // ==================== GERENCIAMENTO DE CATEGORIAS PERSONALIZADAS ====================
 // Carrega e exibe a tabela de gerenciamento de categorias nas configurações.
@@ -1430,7 +1547,7 @@ async function loadCategoriesManagementTable() {
         console.log('Carregando tabela de gerenciamento de categorias...');
         const { categoryManagementBody } = appState.domElements;
         if (!categoryManagementBody) {
-            console.warn("Elemento #categoryManagementBody não encontrado. Não é possível carregar categorias.");
+            console.warn("Elementos de categoria/subcategoria não encontrados. Pulando atualização.");
             return;
         }
         categoryManagementBody.innerHTML = '';
@@ -1843,7 +1960,8 @@ async function processCSV(file, documentType) {
                     const categoriaOriginalStr = categoriaIndex !== -1 ? columns[categoriaIndex] : CONSTANTS.UNCATEGORIZED;
                     const subcategoriaOriginalStr = subcategoriaIndex !== -1 ? columns[subcategoriaIndex] : '';
                     const meioPagamentoStr = meioPagamentoIndex !== -1 ? columns[meioPagamentoIndex] : '';
-                    const valor = parseFloat(valorStr.replace(',', '.')) || 0;
+                    // Adaptação para parsing de valores com formato brasileiro em CSV
+                    const valor = parseBrazilianCurrencyStringToFloat(valorStr) || 0; // Usando a nova função
 
                     // Valida o valor numérico.
                     if (isNaN(valor)) {
@@ -2001,10 +2119,9 @@ async function processExcel(file, documentType) {
                     const categoriaOriginalValue = categoriaIndex !== -1 ? row[categoriaIndex] : CONSTANTS.UNCATEGORIZED;
                     const subcategoriaOriginalValue = subcategoriaIndex !== -1 ? row[subcategoriaIndex] : '';
                     const meioPagamentoValue = meioPagamentoIndex !== -1 ? row[meioPagamentoIndex] : '';
-                    let valor = parseFloat(valorValue);
-                    if (isNaN(valor) && typeof valorValue === 'string') {
-                        valor = parseFloat(valorValue.replace(',', '.'));
-                    }
+                    
+                    // Adaptação para parsing de valores com formato brasileiro ou numérico puro em Excel
+                    let valor = parseBrazilianCurrencyStringToFloat(valorValue); // Usando a nova função
 
                     // Valida o valor numérico.
                     if (isNaN(valor)) {
@@ -2150,7 +2267,7 @@ function formatDate(dateInput) {
             date = new Date(dateInput + 'T00:00:00'); // Adiciona T00:00:00 para evitar problemas com fusos horários
             if (isNaN(date.getTime())) {
                 // 3. Tenta formatos DD/MM/YYYY ou DD-MM-YYYY
-                let parts = dateInput.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+                let parts = dateInput.match(/^(\\d{1,2})[/-](\\d{1,2})[/-](\\d{2,4})$/);
                 if (parts) {
                     // Converte para MM/DD/YYYY, que é mais robusto para o construtor Date() em JS
                     date = new Date(`${parts[2]}/${parts[1]}/${parts[3]}T00:00:00`);
@@ -2158,7 +2275,7 @@ function formatDate(dateInput) {
             }
             if (isNaN(date.getTime())) {
                 // 4. Tenta o formato MM/DD/YYYY ou MM-DD-YYYY
-                let parts = dateInput.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+                let parts = dateInput.match(/^(\\d{1,2})[/-](\\d{1,2})[/-](\\d{2,4})$/);
                 if (parts) {
                     date = new Date(`${parts[1]}/${parts[2]}/${parts[3]}T00:00:00`);
                 }
@@ -2228,7 +2345,7 @@ async function loadTransactions() {
         console.log('Carregando transações...');
         const { transactionsBody, masterCheckbox, sortIconSpan } = appState.domElements;
         if (!transactionsBody) {
-            console.warn("Elemento #transactionsBody não encontrado. Não é possível carregar transações.");
+            console.warn("Elementos de categoria/subcategoria não encontrados. Pulando atualização.");
             return;
         }
         transactionsBody.innerHTML = '';
@@ -2626,7 +2743,8 @@ async function editTransaction(id) {
         // Preenche os campos básicos do formulário.
         if (dataInput) dataInput.value = transaction.data;
         if (tipoSelect) tipoSelect.value = transaction.tipo;
-        if (valorInput) valorInput.value = transaction.valor;
+        // Formata o valor para exibição no input de moeda brasileiro
+        if (valorInput) valorInput.value = formatFloatToBrazilianCurrencyString(transaction.valor);
         if (meioSelect) meioSelect.value = transaction.meio;
         if (descricaoInput) descricaoInput.value = transaction.descricao;
 
@@ -3039,7 +3157,7 @@ function createDespesasCategoriaBarChart(reportTransactions, targetDivId) {
         // Adiciona listener de clique para mostrar detalhes das transações.
         chartDiv.on('plotly_click', function(data) {
             if (data.points.length > 0) {
-                const clickedCategory = data.points[0].x;
+                const clickedCategory = data.points[0].label;
                 const filtered = reportTransactions.filter(t => t.tipo === CONSTANTS.TRANSACTION_TYPE_EXPENSE && t.categoria === clickedCategory);
                 showTransactionDetailsModal(`Despesas na Categoria: ${clickedCategory}`, filtered);
             }
@@ -3555,7 +3673,6 @@ function showConfirmationModal(title, message, callback) {
     confirmActionBtn.onclick = null; // Limpa qualquer listener inline
     confirmActionBtn._callback = null; // Limpa a referência anterior do callback
 
-    // Remove listeners antigos para evitar múltiplas execuções ao reabrir o modal
     // Removendo listeners com a função nomeada para que possam ser removidos corretamente
     const oldConfirmHandler = confirmActionBtn._confirmHandler;
     const oldCancelHandler = cancelConfirmationBtn._cancelHandler;
