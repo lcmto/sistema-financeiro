@@ -2,6 +2,19 @@
 // Estas funções são declaradas no topo para garantir que estejam sempre disponíveis.
 
 /**
+ * Formata um valor numérico como moeda BRL.
+ * @param {number} value - O valor a ser formatado.
+ * @returns {string} O valor formatado como string.
+ */
+function formatCurrency(value) {
+    if (typeof value !== 'number') return 'R$ 0,00';
+    return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+// No topo do script, junto com as outras instâncias de gráfico
+let evolucaoMensalCategoriaChartInstance = null; // ADICIONADO: Nova instância para o gráfico
+
+/**
  * Gera um ID único e universalmente exclusivo (UUID) ou um fallback robusto.
  * Utiliza crypto.randomUUID() se disponível, caso contrário, um método baseado em timestamp e random.
  * @returns {string} Um ID único.
@@ -123,6 +136,32 @@ function formatDisplayDate(isoDate) {
     }
 }
 
+/**
+ * Refactored function to determine transaction type.
+ * @param {string} descricao - The transaction description.
+ * @param {number} valor - The transaction value.
+ * @param {string} documentType - The document type (e.g., 'extrato_bancario', 'fatura_cartao_credito').
+ * @returns {string} The determined transaction type ('receita' or 'despesa').
+ */
+function determineTransactionType(descricao, valor, documentType) {
+    const rules = DOCUMENT_TYPE_RULES[documentType] || DOCUMENT_TYPE_RULES[CONSTANTS.DOC_TYPE_GENERIC];
+    const lowerCaseDescricao = String(descricao).toLowerCase();
+
+    if (rules.special_terms) {
+        for (const termRule of rules.special_terms) {
+            if (termRule.terms.some(term => lowerCaseDescricao.includes(term))) {
+                return termRule.type;
+            }
+        }
+    }
+
+    if (documentType === CONSTANTS.DOC_TYPE_CREDIT_CARD_BILL) {
+        return CONSTANTS.TRANSACTION_TYPE_EXPENSE; // Padrão para faturas
+    }
+
+    // Fallback para o sinal do valor em extratos
+    return valor >= 0 ? CONSTANTS.TRANSACTION_TYPE_INCOME : CONSTANTS.TRANSACTION_TYPE_EXPENSE;
+}
 
 /**
  * Função para cancelar a revisão de importação e fechar o modal.
@@ -254,24 +293,22 @@ const DOCUMENT_TYPE_RULES = {
 };
 
 // ==================== PERFIS DE IMPORTAÇÃO ====================
+// ===== INÍCIO DA ALTERAÇÃO (COMPLETA DO OBJETO IMPORTERPROFILES) =====
 const importerProfiles = {
     bancoDoBrasil: {
         name: 'Banco do Brasil',
-        headerSignature: ['Data', 'Histórico', 'Valor', 'Sinal'],
+        headerSignature: ['Data', 'Lançamento', 'Valor', 'Tipo Lançamento'],
         delimiter: ',',
     },
     bancoInter: {
         name: 'Banco Inter',
         delimiter: ';',
-        headerSignature: ['Data', 'Tipo de transação', 'Descrição', 'Valor'],
-        // ADICIONADO: O mapeamento de colunas que faltava
-        mapping: {
-            data: 0,       // A coluna 'Data' está no índice 0
-            descricao: 2,  // A coluna 'Descrição' está no índice 2
-            valor: 3       // A coluna 'Valor' está no índice 3
-        }
+        // Assinatura corrigida para corresponder ao arquivo "extrato inter.csv"
+        headerSignature: ['Data Lançamento', 'Histórico', 'Descrição', 'Valor'],
     }
 };
+// ===== FIM DA ALTERAÇÃO =====
+
 
 /**
  * Tenta detectar o perfil de um arquivo CSV/Excel com base nos seus cabeçalhos.
@@ -382,48 +419,12 @@ async function processCSV(file, documentType) {
                                 continue;
                             }
 
-                            let tipoTransacao;
-                            let meioFinal;
-                            const lowerCaseDescricao = descricao.toLowerCase();
-                            const rules = DOCUMENT_TYPE_RULES[documentType] || DOCUMENT_TYPE_RULES[CONSTANTS.DOC_TYPE_GENERIC];
+                            // ===== INÍCIO DA ALTERAÇÃO: Substituindo bloco if/else por determineTransactionType =====
+                            let tipoTransacao = determineTransactionType(descricao, valor, documentType);
+                            // ===== FIM DA ALTERAÇÃO =====
 
-                            meioFinal = detectMeioPagamento('', descricao); // Detect payment method based on description
+                            let meioFinal = detectMeioPagamento('', descricao); // Detect payment method based on description
 
-                            if (documentType === CONSTANTS.DOC_TYPE_CREDIT_CARD_BILL) {
-                                let matchedSpecialTerm = false;
-                                if (rules.special_terms && rules.special_terms.length > 0) {
-                                    for (const termRule of rules.special_terms) {
-                                        if (termRule.terms.some(term => lowerCaseDescricao.includes(term))) {
-                                            tipoTransacao = termRule.type;
-                                            matchedSpecialTerm = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                                if (!matchedSpecialTerm) {
-                                    tipoTransacao = CONSTANTS.TRANSACTION_TYPE_EXPENSE; // Default for credit card bills
-                                }
-                            } else { // Bank statement or generic
-                                let matchedSpecialTerm = false;
-                                if (rules.special_terms && rules.special_terms.length > 0) {
-                                    for (const termRule of rules.special_terms) {
-                                        if (termRule.terms.some(term => lowerCaseDescricao.includes(term))) {
-                                            tipoTransacao = termRule.type;
-                                            matchedSpecialTerm = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                                if (!matchedSpecialTerm) {
-                                    if (profile.name === 'Banco do Brasil' && profile.mapping.typeSignal !== -1) {
-                                        // Banco do Brasil uses 'C' for credit (income) and 'D' for debit (expense)
-                                        tipoTransacao = row[profile.mapping.typeSignal].toUpperCase() === 'C' ? CONSTANTS.TRANSACTION_TYPE_INCOME : CONSTANTS.TRANSACTION_TYPE_EXPENSE;
-                                    } else {
-                                        // MODIFICADO: Infere o tipo pelo sinal do valor para o Banco Inter e outros.
-                                        tipoTransacao = valor > 0 ? CONSTANTS.TRANSACTION_TYPE_INCOME : CONSTANTS.TRANSACTION_TYPE_EXPENSE;
-                                    }
-                                }
-                            }
 
                             const rule = findCategoryRule(descricao, 'description', tipoTransacao);
                             const categoriaOriginalDoArquivo = (profile.mapping.category !== -1 && profile.mapping.category < row.length) ? row[profile.mapping.category] : undefined;
@@ -482,50 +483,11 @@ async function processCSV(file, documentType) {
                                     const descricao = row[Object.keys(row).find(k => k.toLowerCase() === descKey)] || '';
                                     const tipoLancamentoValue = tipoLancamentoKey ? row[Object.keys(row).find(k => k.toLowerCase() === tipoLancamentoKey)] : '';
 
+                                    // ===== INÍCIO DA ALTERAÇÃO: Substituindo bloco if/else por determineTransactionType =====
+                                    let tipoTransacao = determineTransactionType(descricao, valor, documentType);
+                                    // ===== FIM DA ALTERAÇÃO =====
 
-                                    let tipoTransacao;
-                                    let meioFinal;
-                                    const lowerCaseDescricao = descricao.toLowerCase();
-                                    const rules = DOCUMENT_TYPE_RULES[documentType] || DOCUMENT_TYPE_RULES[CONSTANTS.DOC_TYPE_GENERIC];
-
-                                    meioFinal = detectMeioPagamento('', descricao); // Prioritize description for detection
-
-                                    if (documentType === CONSTANTS.DOC_TYPE_CREDIT_CARD_BILL) {
-                                        let matchedSpecialTerm = false;
-                                        if (rules.special_terms && rules.special_terms.length > 0) {
-                                            for (const termRule of rules.special_terms) {
-                                                if (termRule.terms.some(term => lowerCaseDescricao.includes(term))) {
-                                                    tipoTransacao = termRule.type;
-                                                    matchedSpecialTerm = true;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        if (!matchedSpecialTerm) {
-                                            tipoTransacao = CONSTANTS.TRANSACTION_TYPE_EXPENSE;
-                                        }
-                                    } else { // Bank statement or generic
-                                        let matchedSpecialTerm = false;
-                                        if (rules.special_terms && rules.special_terms.length > 0) {
-                                            for (const termRule of rules.special_terms) {
-                                                if (termRule.terms.some(term => lowerCaseDescricao.includes(term))) {
-                                                    tipoTransacao = termRule.type;
-                                                    matchedSpecialTerm = true;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        if (!matchedSpecialTerm) {
-                                            const lowerCaseTipoLancamento = String(tipoLancamentoValue).toLowerCase();
-                                            if (lowerCaseTipoLancamento.includes('estorno') || lowerCaseTipoLancamento.includes('pagamento recebido') || lowerCaseTipoLancamento.includes('receita') || lowerCaseTipoLancamento === 'c') {
-                                                tipoTransacao = CONSTANTS.TRANSACTION_TYPE_INCOME;
-                                            } else if (lowerCaseTipoLancamento.includes('compra') || lowerCaseTipoLancamento.includes('despesa') || lowerCaseTipoLancamento === 'd') {
-                                                tipoTransacao = CONSTANTS.TRANSACTION_TYPE_EXPENSE;
-                                            } else {
-                                                tipoTransacao = valor >= 0 ? CONSTANTS.TRANSACTION_TYPE_INCOME : CONSTANTS.TRANSACTION_TYPE_EXPENSE;
-                                            }
-                                        }
-                                    }
+                                    let meioFinal = detectMeioPagamento('', descricao); // Prioritize description for detection
 
                                     const rule = findCategoryRule(descricao, 'description', tipoTransacao);
                                     const categoriaOriginalValue = categoriaKey ? row[Object.keys(row).find(k => k.toLowerCase() === categoriaKey)] : undefined;
@@ -640,50 +602,12 @@ async function processExcel(file, documentType) {
                             continue;
                         }
 
-                        let tipoTransacao;
-                        let meioFinal;
-                        const lowerCaseDescricao = String(descricaoValue).toLowerCase();
+                        // ===== INÍCIO DA ALTERAÇÃO: Substituindo bloco if/else por determineTransactionType =====
+                        let tipoTransacao = determineTransactionType(descricaoValue, valor, documentType);
+                        // ===== FIM DA ALTERAÇÃO =====
 
                         // Prioritize payment method from column if available and recognized, else detect from description
-                        meioFinal = detectMeioPagamento(meioPagamentoValue, descricaoValue);
-
-                        if (documentType === CONSTANTS.DOC_TYPE_CREDIT_CARD_BILL) {
-                            let matchedSpecialTerm = false;
-                            if (rules.special_terms && rules.special_terms.length > 0) {
-                                for (const termRule of rules.special_terms) {
-                                    if (termRule.terms.some(term => lowerCaseDescricao.includes(term))) {
-                                        tipoTransacao = termRule.type;
-                                        matchedSpecialTerm = true;
-                                        break;
-                                    }
-                                }
-                            }
-                            if (!matchedSpecialTerm) {
-                                tipoTransacao = CONSTANTS.TRANSACTION_TYPE_EXPENSE;
-                            }
-                        } else { // Bank statement or generic
-                            let matchedSpecialTerm = false;
-                            if (rules.special_terms && rules.special_terms.length > 0) {
-                                for (const termRule of rules.special_terms) {
-                                    if (termRule.terms.some(term => lowerCaseDescricao.includes(term))) {
-                                        tipoTransacao = termRule.type;
-                                        matchedSpecialTerm = true;
-                                        break;
-                                    }
-                                }
-                            }
-                            if (!matchedSpecialTerm) {
-                                const lowerCaseTipoLancamento = String(tipoLancamentoValue).toLowerCase();
-                                // Infer type from 'tipo de lancamento' column first, then value sign
-                                if (lowerCaseTipoLancamento.includes('estorno') || lowerCaseTipoLancamento.includes('pagamento recebido') || lowerCaseTipoLancamento.includes('receita') || lowerCaseTipoLancamento === 'c') {
-                                    tipoTransacao = CONSTANTS.TRANSACTION_TYPE_INCOME;
-                                } else if (lowerCaseTipoLancamento.includes('compra') || lowerCaseTipoLancamento.includes('despesa') || lowerCaseTipoLancamento === 'd') {
-                                    tipoTransacao = CONSTANTS.TRANSACTION_TYPE_EXPENSE;
-                                } else {
-                                    tipoTransacao = valor >= 0 ? CONSTANTS.TRANSACTION_TYPE_INCOME : CONSTANTS.TRANSACTION_TYPE_EXPENSE;
-                                }
-                            }
-                        }
+                        let meioFinal = detectMeioPagamento(meioPagamentoValue, descricaoValue);
 
                         const rule = findCategoryRule(String(descricaoValue), 'description', tipoTransacao);
                         // Use category/subcategory from file if available and no rule matches, else use rule
@@ -850,6 +774,7 @@ const appState = {
     transactionsToReview: [],
     mainChartInstance: null, // Para a instância do Chart.js
     topCategoriasChartInstance: null, // Novo para o gráfico Top 10
+    evolucaoMensalCategoriaChartInstance: null, // ADICIONADO: Nova instância para o gráfico de Evolução Mensal por Categoria
     currentReportTableTransactions: [], // ADICIONADO: Para armazenar as transações do relatório
 };
 
@@ -1020,7 +945,7 @@ async function initializeSystem() {
         setupEventListeners();
 
         // ADICIONADA: Chamada para verificar a integridade das datas
-        await verificarIntegridadeDasDatas();
+        await verificarIntegridadeDasDates();
 
         showTab('panel-cadastro');
 
@@ -1097,6 +1022,7 @@ function cacheDomElements() {
         appState.domElements.mainChartArea = document.getElementById('main-chart-area');
         appState.domElements.reportChartSelect = document.getElementById('reportChartSelect');
         appState.domElements.reportCategoriaFilter = document.getElementById('reportCategoriaFilter'); // ADICIONADO
+appState.domElements.evolucaoCategoriaSelect = document.getElementById('evolucao-categoria-select');
         appState.domElements.chartTypeDespesasSelect = document.getElementById('chartTypeDespesas');
         appState.domElements.generateReportsBtn = document.getElementById('generateReportsBtn');
         appState.domElements.exportExcelReportBtn = document.getElementById('exportExcelReportBtn');
@@ -1111,6 +1037,8 @@ function cacheDomElements() {
         // ADICIONE AS DUAS LINHAS ABAIXO
         appState.domElements.reportDetailsTableBody = document.getElementById('report-details-table-body');
         appState.domElements.reportSearchInput = document.getElementById('report-search-input');
+        // ADICIONADO: Elemento para o novo gráfico de evolução mensal por categoria
+        appState.domElements.evolucaoCategoriaSelect = document.getElementById('evolucao-categoria-select');
 
 
         // Configurações
@@ -1371,6 +1299,11 @@ function setupReportListeners() {
         appState.domElements.reportCategoriaFilter.addEventListener('change', generateReports);
     }
     if (chartTypeDespesasSelect) chartTypeDespesasSelect.addEventListener('change', generateReports);
+
+    // ADICIONADO: Listener para o novo select de evolução por categoria
+    if (appState.domElements.evolucaoCategoriaSelect) {
+        appState.domElements.evolucaoCategoriaSelect.addEventListener('change', generateReports);
+    }
 
     // ADICIONAR ESTE EVENT LISTENER PARA O CAMPO DE PESQUISA DA TABELA DE RELATÓRIOS
     if (appState.domElements.reportSearchInput) {
@@ -2487,7 +2420,6 @@ function editCategory(type, category) {
 /**
  * Exclui uma categoria ou subcategoria.
  * @param {string} type - Tipo da categoria.
- * @param {string} category - Nome da categoria.
  * @param {string|null} [subcategory=null] - Nome da subcategoria. Se nulo, tenta excluir a categoria inteira.
  */
 async function deleteCategoryOrSubcategory(type, category, subcategory = null) {
@@ -2646,7 +2578,7 @@ async function undoLastImport() {
     openConfirmationModal('Confirmar Desfazer', `Tem certeza que deseja desfazer a última importação (${appState.lastImportedTransactionIds.length} transação(ões))?`, async () => {
         try {
             await db.transactions.bulkDelete(appState.lastImportedTransactionIds);
-            showAlert(`${appState.lastImportedTransactionIds.length} transação(ões) da última importação foram removidas!`, CONSTANTS.ALERT_TYPE_SUCCESS);
+                        showAlert(`${appState.lastImportedTransactionIds.length} transação(ões) da última importação foram removidas!`, CONSTANTS.ALERT_TYPE_SUCCESS);
             appState.lastImportedTransactionIds = []; // Clear the list after undo
             await db.appSettings.update('generalSettings', {
                 lastImportedTransactionIds: appState.lastImportedTransactionIds
@@ -2786,7 +2718,7 @@ async function loadTransactions() {
 
             const amountCell = document.createElement('td');
             amountCell.className = `amount ${transaction.tipo === CONSTANTS.TRANSACTION_TYPE_INCOME ? 'positive' : 'negative'}`;
-            amountCell.textContent = `R$ ${transaction.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+            amountCell.textContent = formatCurrency(transaction.valor); // Usando formatCurrency
             row.appendChild(amountCell);
 
             const meioCell = document.createElement('td');
@@ -3075,15 +3007,15 @@ function updateTransactionStats(filteredTransactions) {
         if (transactionStatsContainer) {
             transactionStatsContainer.innerHTML = `
                 <div class="bg-slate-700 p-4 rounded-lg shadow-md">
-                    <div class="text-white text-3xl font-bold mb-1 positive">R$ ${stats.totalReceitas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                    <div class="text-white text-3xl font-bold mb-1 positive">${formatCurrency(stats.totalReceitas)}</div>
                     <div class="text-slate-400 text-sm">Total Receitas</div>
                 </div>
                 <div class="bg-slate-700 p-4 rounded-lg shadow-md">
-                    <div class="text-white text-3xl font-bold mb-1 negative">R$ ${stats.totalDespesas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                    <div class="text-white text-3xl font-bold mb-1 negative">${formatCurrency(stats.totalDespesas)}</div>
                     <div class="text-slate-400 text-sm">Total Despesas</div>
                 </div>
                 <div class="bg-slate-700 p-4 rounded-lg shadow-md">
-                    <div class="text-white text-3xl font-bold mb-1 ${stats.saldo >= 0 ? 'positive' : 'negative'}">R$ ${stats.saldo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                    <div class="text-white text-3xl font-bold mb-1 ${stats.saldo >= 0 ? 'positive' : 'negative'}">${formatCurrency(stats.saldo)}</div>
                     <div class="text-slate-400 text-sm">Saldo Líquido</div>
                 </div>
                 <div class="bg-slate-700 p-4 rounded-lg shadow-md">
@@ -3242,7 +3174,7 @@ async function editTransaction(id) {
         showTab('panel-cadastro'); // Switch to cadastro tab
         showAlert('Transação carregada para edição!', CONSTANTS.ALERT_TYPE_SUCCESS);
     } catch (error) {
-        console.error(`Erro ao editar transação: ${error.message}`, error);
+        console.error(`Erro ao carregar transação para edição: ${error.message}`, error);
         showAlert('Erro ao carregar transação para edição: ' + error.message, CONSTANTS.ALERT_TYPE_ERROR);
     }
 }
@@ -3313,8 +3245,7 @@ async function generateReports() {
             reportDataFimInput,
             mainChartArea,
             reportChartSelect,
-            chartTypeDespesasSelect,
-            mainChartTitle
+            chartTypeDespesasSelect
         } = appState.domElements;
 
         const dataInicio = reportDataInicioInput ? reportDataInicioInput.value : null;
@@ -3347,11 +3278,15 @@ async function generateReports() {
         if (appState.topCategoriasChartInstance) {
             appState.topCategoriasChartInstance.destroy();
         }
+        // ADICIONADO: Destrói a instância do novo gráfico de evolução por categoria
+        if (appState.evolucaoMensalCategoriaChartInstance) {
+            appState.evolucaoMensalCategoriaChartInstance.destroy();
+        }
 
 
-        if (mainChartTitle && reportChartSelect) {
+        if (appState.domElements.mainChartTitle && reportChartSelect) {
             // Garante que o título volte ao normal ao gerar o relatório principal
-            mainChartTitle.textContent = reportChartSelect.options[reportChartSelect.selectedIndex].text;
+            appState.domElements.mainChartTitle.textContent = reportChartSelect.options[reportChartSelect.selectedIndex].text;
         }
 
         // Create new chart based on selection
@@ -3371,6 +3306,11 @@ async function generateReports() {
 
         // CHAME A NOVA FUNÇÃO AQUI para o gráfico Top 10 Categorias
         renderTopCategoriasChart(reportTransactions);
+
+        // ADICIONADO: Chame a nova função de renderização do gráfico de Evolução Mensal por Categoria
+        const selectedEvolucaoCategory = appState.domElements.evolucaoCategoriaSelect.value;
+        renderEvolucaoMensalPorCategoria(reportTransactions, selectedEvolucaoCategory);
+
 
         console.log('Relatórios gerados com sucesso');
     } catch (error) {
@@ -3393,22 +3333,13 @@ function updateReportKPIs(transactions) {
     const stats = calculateStats(transactions);
 
     if (kpiTotalReceitas) {
-        kpiTotalReceitas.textContent = stats.totalReceitas.toLocaleString('pt-BR', {
-            style: 'currency',
-            currency: 'BRL'
-        });
+        kpiTotalReceitas.textContent = formatCurrency(stats.totalReceitas);
     }
     if (kpiTotalDespesas) {
-        kpiTotalDespesas.textContent = stats.totalDespesas.toLocaleString('pt-BR', {
-            style: 'currency',
-            currency: 'BRL'
-        });
+        kpiTotalDespesas.textContent = formatCurrency(stats.totalDespesas);
     }
     if (kpiSaldoLiquido) {
-        kpiSaldoLiquido.textContent = stats.saldo.toLocaleString('pt-BR', {
-            style: 'currency',
-            currency: 'BRL'
-        });
+        kpiSaldoLiquido.textContent = formatCurrency(stats.saldo);
         kpiSaldoLiquido.classList.toggle('text-emerald-400', stats.saldo >= 0);
         kpiSaldoLiquido.classList.toggle('text-red-400', stats.saldo < 0);
         kpiSaldoLiquido.classList.toggle('text-sky-400', stats.saldo === 0); // Neutral color for zero
@@ -3492,21 +3423,23 @@ function createDespesasCategoriaChart(transactions, ctx, chartType = 'doughnut')
                     titleFont: {
                         weight: 'bold'
                     },
+                    // #################### INÍCIO DA CORREÇÃO APLICADA ####################
                     callbacks: {
                         label: function(context) {
                             let label = context.label || '';
                             if (label) {
                                 label += ': ';
                             }
-                            if (context.parsed.value !== null) {
-                                label += context.parsed.value.toLocaleString('pt-BR', {
-                                    style: 'currency',
-                                    currency: 'BRL'
-                                });
-                            }
+                            // CORRIGIDO: Usa context.raw para pegar o valor numérico correto.
+                            const value = context.raw || 0;
+
+                            // Agora o valor é formatado corretamente em Reais.
+                            label += formatCurrency(value);
+
                             return label;
                         }
                     }
+                    // #################### FIM DA CORREÇÃO APLICADA ####################
                 }
             },
             scales: chartType === 'bar' ? {
@@ -3528,32 +3461,25 @@ function createDespesasCategoriaChart(transactions, ctx, chartType = 'doughnut')
                     } // Light grid lines
                 }
             } : {}, // No scales for doughnut chart
-            // NOVA LÓGICA DE CLICK: Filtrar no local (conforme solicitado)
+            // ===== ADICIONADO: Lógica de click para drill-down =====
             onClick: (e, elements) => {
                 if (elements.length > 0) {
                     const clickedIndex = elements[0].index;
-                    const clickedCategory = labels[clickedIndex];
+                    const clickedCategory = labels[clickedIndex]; // Pega o nome da categoria clicada
+                    const reportCategoryFilter = appState.domElements.reportCategoriaFilter;
 
-                    // Filtra as transações e atualiza APENAS a tabela de detalhes
-                    // Acessa as transações completas armazenadas no appState.mainChartInstance.data
-                    const allTransactionsInReport = appState.currentReportTableTransactions;
-                    const categoryTransactions = allTransactionsInReport.filter(t =>
-                        t.categoria === clickedCategory && t.tipo === CONSTANTS.TRANSACTION_TYPE_EXPENSE // Filtra também por tipo para consistência
-                    );
-                    updateReportTransactionsTable(categoryTransactions); // <<< MODIFICADO AQUI
-                    showAlert(`Mostrando detalhes para a categoria "${clickedCategory}"`, 'info');
-
-                    // Limpa o campo de busca da tabela quando um segmento do gráfico é clicado
-                    const reportSearchInput = appState.domElements.reportSearchInput;
-                    if (reportSearchInput) {
-                        reportSearchInput.value = '';
+                    // Atualiza o filtro <select> da página
+                    if (reportCategoryFilter) {
+                        reportCategoryFilter.value = clickedCategory;
+                        // Dispara o evento de mudança para que a página se atualize
+                        reportCategoryFilter.dispatchEvent(new Event('change'));
                     }
                 }
             }
+            // ===== FIM DA ADIÇÃO =====
         }
     });
 }
-
 /**
  * Cria o gráfico de Evolução Mensal (Receitas vs. Despesas) usando Chart.js.
  * @param {Array<object>} transactions - Dados das transações.
@@ -3622,10 +3548,7 @@ function createEvolucaoMensalChart(transactions, ctx) {
                                 label += ': ';
                             }
                             if (context.parsed.y !== null) {
-                                label += context.parsed.y.toLocaleString('pt-BR', {
-                                    style: 'currency',
-                                    currency: 'BRL'
-                                });
+                                label += formatCurrency(context.parsed.y); // Usando formatCurrency
                             }
                             return label;
                         }
@@ -3709,10 +3632,7 @@ function createTransacoesMeioChart(transactions, ctx, chartType = 'doughnut') {
                                 label += ': ';
                             }
                             if (context.parsed.value !== null) {
-                                label += context.parsed.value.toLocaleString('pt-BR', {
-                                    style: 'currency',
-                                    currency: 'BRL'
-                                });
+                                label += formatCurrency(context.parsed.value); // Usando formatCurrency
                             }
                             return label;
                         }
@@ -3812,13 +3732,79 @@ function renderTopCategoriasChart(transactions) {
                         weight: 'bold'
                     },
                     callbacks: {
-                        label: c => ` ${c.raw.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`
+                        label: c => ` ${formatCurrency(c.raw)}` // Usando formatCurrency
                     }
                 }
             }
         }
     });
 }
+
+/**
+ * Cria ou atualiza o gráfico de Evolução Mensal para uma Categoria Específica.
+ * @param {Array<object>} transactions - Todas as transações do período do relatório.
+ * @param {string} selectedCategory - A categoria para a qual o gráfico será gerado.
+ */
+function renderEvolucaoMensalPorCategoria(transactions, selectedCategory) {
+    const ctx = document.getElementById('evolucao-mensal-categoria-chart')?.getContext('2d');
+    if (!ctx) return;
+
+    if (appState.evolucaoMensalCategoriaChartInstance) { // Usando appState para a instância
+        appState.evolucaoMensalCategoriaChartInstance.destroy();
+    }
+
+    // Se nenhuma categoria for selecionada, não renderiza o gráfico.
+    if (!selectedCategory || selectedCategory === 'all') {
+        return;
+    }
+
+    // 1. Filtrar transações apenas para a categoria e tipo de despesa selecionados
+    const despesasDaCategoria = transactions.filter(t =>
+        t.tipo === CONSTANTS.TRANSACTION_TYPE_EXPENSE && t.categoria === selectedCategory
+    );
+
+    // 2. Agrupar os gastos por mês (YYYY-MM)
+    const gastosPorMes = despesasDaCategoria.reduce((acc, t) => {
+        const mes = t.data.substring(0, 7); // Extrai 'YYYY-MM'
+        acc[mes] = (acc[mes] || 0) + t.valor;
+        return acc;
+    }, {});
+
+    const meses = Object.keys(gastosPorMes).sort();
+    const labels = meses.map(m => new Date(m + '-02').toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }));
+    const data = meses.map(m => gastosPorMes[m]);
+
+    // 3. Renderizar o gráfico de linha
+    appState.evolucaoMensalCategoriaChartInstance = new Chart(ctx, { // Usando appState para a instância
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: `Gastos em ${selectedCategory}`,
+                data: data,
+                borderColor: '#38bdf8', // sky-400
+                backgroundColor: 'rgba(56, 189, 248, 0.2)',
+                fill: true,
+                tension: 0.3
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'bottom', labels: { color: '#94a3b8' } },
+                tooltip: {
+                    callbacks: { label: c => `${c.dataset.label}: ${formatCurrency(c.raw)}` }
+                }
+            },
+            scales: {
+                y: { ticks: { color: '#94a3b8', callback: value => formatCurrency(value) } },
+                x: { ticks: { color: '#94a3b8' } }
+            }
+        }
+    });
+}
+
 
 /**
  * Atualiza a tabela de detalhes na aba de relatórios com as transações fornecidas.
@@ -3862,7 +3848,7 @@ function updateReportTransactionsTable(transactions) {
             <td class="p-3 text-sm">${t.descricao}</td>
             <td class="p-3 text-sm">${t.subcategoria || '-'}</td>
             <td class="p-3 text-sm text-right font-medium ${t.tipo === 'receita' ? 'text-emerald-400' : 'text-red-400'}">
-                ${t.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                ${formatCurrency(t.valor)}
             </td>
         `;
         fragment.appendChild(row);
@@ -3932,9 +3918,7 @@ async function exportReportToPdf() {
         ];
         const data = reportTransactions.map(t => {
             let description = t.descricao;
-            return [formatDisplayDate(t.data), t.tipo.toUpperCase(), t.categoria, t.subcategoria, description, t.valor.toLocaleString('pt-BR', {
-                minimumFractionDigits: 2
-            }), formatMeio(t.meio)];
+            return [formatDisplayDate(t.data), t.tipo.toUpperCase(), t.categoria, t.subcategoria, description, formatCurrency(t.valor), formatMeio(t.meio)];
         });
         doc.text("Relatório Financeiro Doméstico", 14, 20);
         doc.autoTable({
@@ -4047,11 +4031,11 @@ async function updateSystemStats() {
                     <div class="text-slate-400 text-sm">Total de Transações Registradas</div>
                 </div>
                 <div class="bg-slate-700 p-4 rounded-lg shadow-md">
-                    <div class="text-white text-3xl font-bold mb-1 positive">R$ ${totalReceitas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                    <div class="text-white text-3xl font-bold mb-1 positive">${formatCurrency(totalReceitas)}</div>
                     <div class="text-slate-400 text-sm">Total de Receitas Registradas</div>
                 </div>
                 <div class="bg-slate-700 p-4 rounded-lg shadow-md">
-                    <div class="text-white text-3xl font-bold mb-1 negative">R$ ${totalDespesas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                    <div class="text-white text-3xl font-bold mb-1 negative">${formatCurrency(totalDespesas)}</div>
                     <div class="text-slate-400 text-sm">Total de Despesas Registradas</div>
                 </div>
                 <div class="bg-slate-700 p-4 rounded-lg shadow-md">
@@ -4714,11 +4698,11 @@ function formatMeio(meioKey) {
         'dinheiro': 'Dinheiro',
         'boleto': 'Boleto',
         'transferencia': 'Transferência',
+        // A linha problemática '' foi removida daqui.
         'outros': 'Outros'
     };
-    return meioMap[meioKey] || meioKey; // Return friendly name or original key if not found
+    return meioMap[meioKey] || meioKey; // Retorna o nome amigável ou a chave original se não for encontrada
 }
-
 /**
  * Abre um modal genérico.
  * @param {string} modalId - O ID do elemento do modal.
@@ -4800,6 +4784,8 @@ function debugInfo() {
             console.log(`  ${key}: Chart.js Instance`);
         } else if (key === 'topCategoriasChartInstance' && appState[key]) { // Adicionado para o novo gráfico
             console.log(`  ${key}: Chart.js Instance (Top Categorias)`);
+        } else if (key === 'evolucaoMensalCategoriaChartInstance' && appState[key]) { // Adicionado para o novo gráfico
+            console.log(`  ${key}: Chart.js Instance (Evolução Mensal por Categoria)`);
         } else {
             console.log(`  ${key}:`, appState[key]);
         }
@@ -4813,13 +4799,13 @@ function debugInfo() {
  * Varre todas as transações no banco de dados para verificar a integridade do campo 'data'.
  * Registra no console quaisquer transações com datas inválidas.
  */
-async function verificarIntegridadeDasDatas() {
+async function verificarIntegridadeDasDates() {
     console.log('%cINICIANDO VERIFICAÇÃO DE INTEGRIDADE DAS DATAS...', 'color: yellow; font-weight: bold;');
     try {
         const todasAsTransacoes = await db.transactions.toArray();
         let registrosInvalidos = 0;
 
-        const regexDataValida = /^\d{4}-\d{2}-\d{2}$/; // CORRIGIDO: Removido \\ extra
+        const regexDataValida = /^\d{4}-\d{2}-\d{2}$/; // CORRIGIDO: Removido \ extra
 
         for (const t of todasAsTransacoes) {
             // Verifica se o campo 'data' é uma string no formato YYYY-MM-DD
@@ -4851,7 +4837,7 @@ async function corrigirDatasInvalidas() {
     let registrosCorrigidos = 0;
 
     await db.transactions.toCollection().modify(t => {
-        const regexDataValida = /^\d{4}-\d{2}-\d{2}$/; // CORRIGIDO: Removido \\ extra
+        const regexDataValida = /^\d{4}-\d{2}-\d{2}$/; // CORRIGIDO: Removido \ extra
         if (typeof t.data !== 'string' || !regexDataValida.test(t.data) || isNaN(new Date(t.data).getTime())) {
             console.warn(`Corrigindo ID: ${t.id}. Data antiga:`, t.data, `Nova data: ${hoje}`);
             t.data = hoje; // Define a data para hoje
@@ -4922,25 +4908,38 @@ async function corrigirRecorrenciaInvalida() {
 async function populateReportFilterCategories() { // <-- ADICIONADA ESTA FUNÇÃO NOVA
     try {
         const {
-            reportCategoriaFilter
+            reportCategoriaFilter,
+            evolucaoCategoriaSelect // ADICIONADO: Novo select de evolução
         } = appState.domElements;
-        if (!reportCategoriaFilter) return;
+        if (!reportCategoriaFilter || !evolucaoCategoriaSelect) return;
 
-        const currentValue = reportCategoriaFilter.value; // Salva o valor atual
+        const currentFilterValue = reportCategoriaFilter.value; // Salva o valor atual
+        const currentEvolucaoValue = evolucaoCategoriaSelect.value; // Salva o valor atual
+
         reportCategoriaFilter.innerHTML = '<option value="all">Todas as Categorias</option>';
+        evolucaoCategoriaSelect.innerHTML = '<option value="all">Selecione uma Categoria</option>';
 
-        const allCategories = new Set();
+        const allCategoriesSet = new Set();
         const transactions = await db.transactions.toArray();
-        transactions.forEach(t => allCategories.add(t.categoria));
+        transactions.forEach(t => allCategoriesSet.add(t.categoria));
 
-        Array.from(allCategories).sort().forEach(cat => {
+        const allCategories = Array.from(allCategoriesSet).sort();
+
+        allCategories.forEach(categoria => {
+            // Popula o filtro principal
             const option = document.createElement('option');
-            option.value = cat;
-            option.textContent = cat;
+            option.value = categoria;
+            option.textContent = categoria;
             reportCategoriaFilter.appendChild(option);
+
+            // Popula o novo select de evolução
+            const evolucaoOption = option.cloneNode(true);
+            evolucaoCategoriaSelect.appendChild(evolucaoOption);
         });
 
-        reportCategoriaFilter.value = currentValue; // Restaura o valor se ainda existir
+        // Restaura os valores selecionados
+        reportCategoriaFilter.value = currentFilterValue;
+        evolucaoCategoriaSelect.value = currentEvolucaoValue;
 
     } catch (error) {
         console.error(`Erro ao popular categorias do filtro de relatório: ${error.message}`, error);
